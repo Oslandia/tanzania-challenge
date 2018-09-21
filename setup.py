@@ -17,14 +17,17 @@ with open('README.md', 'rb') as f:
     readme = f.read().decode('utf-8')
 
 install_requires = [
+    'configparser<=3.5.0',
     'numpy<=1.14.2',
     'pandas<=0.22.0',
-    'pillow<=5.0.0',
-    'tensorflow<=1.6',
-    'keras<=2.1.5',
-    'matplotlib<=2.2.0',
     'luigi<=2.7.8',
+    'Pillow<=5.0.0',
+    'requests<=2.19.1'
     'sh<=1.12.14']
+
+dependency_links = [
+    'git+https://github.com/mapnik/python-mapnik@v3.0.16',
+]
 
 setup(
     name='tanzania challenge',
@@ -50,5 +53,6 @@ setup(
     ],
     python_requires='>=3',
     install_requires=install_requires,
+    dependency_links=dependency_links,
     packages=find_packages(),
 )
