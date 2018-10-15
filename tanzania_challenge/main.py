@@ -25,9 +25,10 @@ MergeAllLabelRasters --datapath ./data/open_ai_tanzania --tile-size 10000
 import geopandas as gpd
 import json
 import luigi
-from luigi.contrib.postgres import CopyToTable
+from luigi.contrib.postgres import CopyToTable, PostgresQuery
 import os
 from osgeo import gdal
+import psycopg2
 import sh
 import subprocess
 
@@ -228,6 +229,109 @@ class StoreLabelsToDatabase(luigi.Task):
             sh.ogr2ogr(ogr2ogr_args)
             fobj.write(("ogr2ogr used file {} to insert OSM data "
                         "into {} database").format(label_filename, "tanzania"))
+
+
+class ExtractTileItems(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    filename = luigi.Parameter()
+    min_x = luigi.IntParameter()
+    min_y = luigi.IntParameter()
+    tile_width = luigi.IntParameter(default=5000)
+    tile_height = luigi.IntParameter(default=5000)
+
+    def requires(self):
+        return {"db": StoreLabelsToDatabase(self.datapath, self.filename),
+                "features": GetTileFeatures(self.datapath, self.filename,
+                                            self.min_x, self.min_y,
+                                            self.tile_width, self.tile_height)}
+
+    def output(self):
+        output_path = os.path.join(self.datapath, "preprocessed",
+                                   str(self.tile_width)+"_"+str(self.tile_height),
+                                   "training", "items")
+        os.makedirs(output_path, exist_ok=True)
+        output_filename_suffix = "_{}_{}_{}_{}.json".format(self.tile_width,
+                                                            self.tile_height,
+                                                            self.min_x,
+                                                            self.min_y)
+        output_filename = self.filename + output_filename_suffix
+        return luigi.LocalTarget(os.path.join(output_path, output_filename))
+
+    def run(self):
+        with self.input()["features"].open("r") as fobj:
+            features = json.load(fobj)
+        query = ("WITH bbox AS ("
+                 "SELECT ST_MakeEnvelope("
+                 "{west}, {south}, {east}, {north}, {srid}) AS geom"
+                 ") "
+                 "SELECT condition, st_intersection("
+                 "st_makevalid(wkb_geometry), bbox.geom) "
+                 "FROM {table} JOIN bbox "
+                 "ON st_intersects(wkb_geometry, bbox.geom)"
+                 ";").format(table=self.filename, west=features["west"],
+                             south=features["south"], east=features["east"],
+                             north=features["north"], srid=features["srid"])
+        config = utils.confparser["database"]
+        connection_string = ("dbname={dbname} host={host} port={port} "
+                             "user={user} password={password}"
+                             "").format(dbname=config["dbname"],
+                                        host=config["host"],
+                                        port=config["port"],
+                                        user=config["user"],
+                                        password=config["password"])
+        connection = psycopg2.connect(connection_string)
+        cursor = connection.cursor()
+        cursor.execute(query)
+        rset = cursor.fetchall()
+        res = {}
+        for i, x in enumerate(rset):
+            if not x[1] is None:
+                res[i]={"condition": x[0], "geom": x[1]}
+        with self.output().open('w') as fobj:
+            json.dump(res, fobj)
+
+
+class ExtractAllTileItems(luigi.Task):
+    """
+
+    Attributes
+    ----------
+    datapath : str
+        Path towards the Tanzania challenge data
+    filename : str
+        Name of the area of interest, *e.g.* `grid_001`
+    tile_size : int
+        Number of pixels that must be considered in both direction (east-west,
+    north-south) in tile definition. This constraint is relaxed when
+    considering border tiles (on east and south borders, especially).
+
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    filename = luigi.Parameter()
+    tile_size = luigi.IntParameter(default=5000)
+
+    def requires(self):
+        task_in = {}
+        ds = gdal.Open(os.path.join(self.datapath, "input", "training",
+                                    "images", self.filename + ".tif"))
+        xsize = ds.RasterXSize
+        ysize = ds.RasterYSize
+        for x in range(0, xsize, self.tile_size):
+            tile_width = min(xsize - x, self.tile_size)
+            for y in range(0, ysize, self.tile_size):
+                task_id = str(x) + "-" + str(y)
+                tile_height = min(ysize - y, self.tile_size)
+                task_in[task_id] = ExtractTileItems(self.datapath,
+                                                    self.filename,
+                                                    x, y,
+                                                    tile_width, tile_height)
+        ds = None
+        return task_in
+
+    def complete(self):
+        return False
 
 
 class GenerateTileRaster(luigi.Task):
