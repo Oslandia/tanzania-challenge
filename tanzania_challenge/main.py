@@ -59,12 +59,13 @@ class GenerateSubTile(luigi.Task):
     filename = luigi.Parameter()
     min_x = luigi.IntParameter()
     min_y = luigi.IntParameter()
+    tile_size = luigi.IntParameter(default=5000)
     tile_width = luigi.IntParameter(default=5000)
     tile_height = luigi.IntParameter(default=5000)
 
     def output(self):
         output_path = os.path.join(self.datapath, "preprocessed",
-                                   str(self.tile_width)+"_"+str(self.tile_height),
+                                   str(self.tile_size),
                                    "training", "images")
         os.makedirs(output_path, exist_ok=True)
         output_filename_suffix = "_{}_{}_{}_{}.tif".format(self.tile_width,
@@ -150,17 +151,19 @@ class GetTileFeatures(luigi.Task):
     filename = luigi.Parameter()
     min_x = luigi.IntParameter()
     min_y = luigi.IntParameter()
+    tile_size = luigi.IntParameter(default=5000)
     tile_width = luigi.IntParameter(default=5000)
     tile_height = luigi.IntParameter(default=5000)
 
     def requires(self):
         return GenerateSubTile(self.datapath, self.filename,
                                self.min_x, self.min_y,
+                               self.tile_size,
                                self.tile_width, self.tile_height)
 
     def output(self):
         output_path = os.path.join(self.datapath, "preprocessed",
-                                   str(self.tile_width)+"_"+str(self.tile_height),
+                                   str(self.tile_size),
                                    "training", "features")
         os.makedirs(output_path, exist_ok=True)
         output_filename_suffix = "_{}_{}_{}_{}.json".format(self.tile_width,
@@ -238,6 +241,7 @@ class ExtractTileItems(luigi.Task):
     filename = luigi.Parameter()
     min_x = luigi.IntParameter()
     min_y = luigi.IntParameter()
+    tile_size = luigi.IntParameter(default=5000)
     tile_width = luigi.IntParameter(default=5000)
     tile_height = luigi.IntParameter(default=5000)
 
@@ -245,11 +249,12 @@ class ExtractTileItems(luigi.Task):
         return {"db": StoreLabelsToDatabase(self.datapath, self.filename),
                 "features": GetTileFeatures(self.datapath, self.filename,
                                             self.min_x, self.min_y,
+                                            self.tile_size,
                                             self.tile_width, self.tile_height)}
 
     def output(self):
         output_path = os.path.join(self.datapath, "preprocessed",
-                                   str(self.tile_width)+"_"+str(self.tile_height),
+                                   str(self.tile_size),
                                    "training", "items")
         os.makedirs(output_path, exist_ok=True)
         output_filename_suffix = "_{}_{}_{}_{}.json".format(self.tile_width,
@@ -325,342 +330,10 @@ class ExtractAllTileItems(luigi.Task):
                 tile_height = min(ysize - y, self.tile_size)
                 task_in[task_id] = ExtractTileItems(self.datapath,
                                                     self.filename,
-                                                    x, y,
+                                                    x, y, self.tile_size,
                                                     tile_width, tile_height)
         ds = None
         return task_in
-
-    def complete(self):
-        return False
-
-
-class GenerateTileRaster(luigi.Task):
-    """Generate a raster for a given label tile, after querying it into the
-    dedicated PostGreSQL database through Mapnik.
-
-    Attributes
-    ----------
-    datapath : str
-        Path towards the Tanzania challenge data
-    filename : str
-        Name of the area of interest, *e.g.* `grid_001`
-    min_x : int
-        Tile upper-left corner abscissa (north coordinate)
-    min_y : int
-        Tile upper-left corner ordinate (west coordinate)
-    tile_width : int
-        Number of pixels that must be considered in the west-east direction
-    tile_height : int
-        Number of pixels that must be considered in the north-south direction
-    background_color : list of 3 ints
-        RGB tuple for the raster background
-    complete_color : list of 3 ints
-        RGB tuple corresponding to `complete` building representation
-    incomplete_color : list of 3 ints
-        RGB tuple corresponding to `incomplete` building representation
-    foundation_color : list of 3 ints
-        RGB tuple corresponding to `foundation` building representation
-
-    """
-    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
-    filename = luigi.Parameter()
-    min_x = luigi.IntParameter()
-    min_y = luigi.IntParameter()
-    tile_width = luigi.IntParameter(default=5000)
-    tile_height = luigi.IntParameter(default=5000)
-    background_color = luigi.ListParameter(default=[0, 0, 0])
-    complete_color = luigi.ListParameter(default=[50, 200, 50]) # Green
-    incomplete_color = luigi.ListParameter(default=[200, 200, 50]) # Yellow
-    foundation_color = luigi.ListParameter(default=[200, 50, 50]) # Red
-
-    @property
-    def short_filename(self):
-        return "_".join(self.filename.split("_")[:2])
-
-    def requires(self):
-        return {"features": GetTileFeatures(self.datapath, self.filename,
-                                            self.min_x, self.min_y,
-                                            self.tile_width, self.tile_height),
-                "labels": StoreLabelsToDatabase(self.datapath,
-                                                self.short_filename)}
-
-    def output(self):
-        output_path = os.path.join(self.datapath, "preprocessed",
-                                   str(self.tile_width),
-                                   "training", "labels")
-        os.makedirs(output_path, exist_ok=True)
-        output_filename_suffix = "_{}_{}_{}_{}.png".format(self.tile_width,
-                                                           self.tile_height,
-                                                           self.min_x,
-                                                           self.min_y)
-        output_filename = self.filename + output_filename_suffix
-        return luigi.LocalTarget(os.path.join(output_path, output_filename))
-
-    def run(self):
-        with self.input()["features"].open('r') as fobj:
-            features = json.load(fobj)
-        classes = {"background": self.background_color,
-                   "Complete": self.complete_color,
-                   "Incomplete": self.incomplete_color,
-                   "Foundation": self.foundation_color,}
-        utils.generate_raster(self.output().path, self.short_filename,
-                              features, classes)
-
-
-class GenerateAllTileRasters(luigi.Task):
-    """
-
-    Attributes
-    ----------
-    datapath : str
-        Path towards the Tanzania challenge data
-    filename : str
-        Name of the area of interest, *e.g.* `grid_001`
-    tile_size : int
-        Number of pixels that must be considered in both direction (east-west,
-    north-south) in tile definition. This constraint is relaxed when
-    considering border tiles (on east and south borders, especially).
-    background_color : list of 3 ints
-        RGB tuple for the raster background
-    complete_color : list of 3 ints
-        RGB tuple corresponding to `complete` building representation
-    incomplete_color : list of 3 ints
-        RGB tuple corresponding to `incomplete` building representation
-    foundation_color : list of 3 ints
-        RGB tuple corresponding to `foundation` building representation
-
-    """
-    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
-    filename = luigi.Parameter()
-    tile_size = luigi.IntParameter(default=5000)
-    background_color = luigi.ListParameter(default=[0, 0, 0])
-    complete_color = luigi.ListParameter(default=[50, 200, 50]) # Green
-    incomplete_color = luigi.ListParameter(default=[200, 200, 50]) # Yellow
-    foundation_color = luigi.ListParameter(default=[200, 50, 50]) # Red
-
-    def requires(self):
-        task_in = {}
-        ds = gdal.Open(os.path.join(self.datapath, "input", "training",
-                                    "images", self.filename + ".tif"))
-        xsize = ds.RasterXSize
-        ysize = ds.RasterYSize
-        for x in range(0, xsize, self.tile_size):
-            tile_width = min(xsize - x, self.tile_size)
-            for y in range(0, ysize, self.tile_size):
-                task_id = str(x) + "-" + str(y)
-                tile_height = min(ysize - y, self.tile_size)
-                if tile_width == tile_height == self.tile_size:
-                    task_in[task_id] = GenerateTileRaster(self.datapath,
-                                                          self.filename,
-                                                          x, y,
-                                                          tile_width,
-                                                          tile_height,
-                                                          self.background_color,
-                                                          self.complete_color,
-                                                          self.incomplete_color,
-                                                          self.foundation_color)
-        ds = None
-        return task_in
-
-    def complete(self):
-        return False
-
-
-class ReprojectTileRaster(luigi.Task):
-    """Reproject label tiles after Mapnik rendering process, as it produces
-    simple image without geographical metadata. The tile metadata are deduced
-    from corresponding image tile metadata.
-
-    Attributes
-    ----------
-    datapath : str
-        Path towards the Tanzania challenge data
-    filename : str
-        Name of the area of interest, *e.g.* `grid_001`
-    min_x : int
-        Tile upper-left corner abscissa (north coordinate)
-    min_y : int
-        Tile upper-left corner ordinate (west coordinate)
-    tile_width : int
-        Number of pixels that must be considered in the west-east direction
-    tile_height : int
-        Number of pixels that must be considered in the north-south direction
-    background_color : list of 3 ints
-        RGB tuple for the raster background
-    complete_color : list of 3 ints
-        RGB tuple corresponding to `complete` building representation
-    incomplete_color : list of 3 ints
-        RGB tuple corresponding to `incomplete` building representation
-    foundation_color : list of 3 ints
-        RGB tuple corresponding to `foundation` building representation
-
-    """
-    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
-    filename = luigi.Parameter()
-    min_x = luigi.IntParameter()
-    min_y = luigi.IntParameter()
-    tile_width = luigi.IntParameter(default=5000)
-    tile_height = luigi.IntParameter(default=5000)
-    background_color = luigi.ListParameter(default=[0, 0, 0])
-    complete_color = luigi.ListParameter(default=[50, 200, 50]) # Green
-    incomplete_color = luigi.ListParameter(default=[200, 200, 50]) # Yellow
-    foundation_color = luigi.ListParameter(default=[200, 50, 50]) # Red
-
-    def requires(self):
-        return {"image": GenerateSubTile(self.datapath, self.filename,
-                                         self.min_x, self.min_y,
-                                         self.tile_width, self.tile_height),
-                "label": GenerateTileRaster(self.datapath, self.filename,
-                                            self.min_x, self.min_y,
-                                            self.tile_width, self.tile_height,
-                                            self.background_color,
-                                            self.complete_color,
-                                            self.incomplete_color,
-                                            self.foundation_color)}
-
-
-    def output(self):
-        output_path = os.path.join(self.datapath, "preprocessed",
-                                   str(self.tile_width),
-                                   "training", "proj_labels")
-        os.makedirs(output_path, exist_ok=True)
-        output_filename_suffix = "_{}_{}_{}_{}.tif".format(self.tile_width,
-                                                           self.tile_height,
-                                                           self.min_x,
-                                                           self.min_y)
-        output_filename = self.filename + output_filename_suffix
-        return luigi.LocalTarget(os.path.join(output_path, output_filename))
-
-    def run(self):
-        image_source = gdal.Open(self.input()["image"].path)
-        label_source = gdal.Open(self.input()["label"].path)
-        geodriver = image_source.GetDriver()
-        out_source = geodriver.Create(self.output().path,
-                                      label_source.RasterXSize,
-                                      label_source.RasterYSize,
-                                      label_source.RasterCount,
-                                      gdal.GDT_Int16)
-        out_source.SetProjection(image_source.GetProjection())
-        out_source.SetGeoTransform(image_source.GetGeoTransform())
-        for band in range(1, label_source.RasterCount + 1):
-            band_array = label_source.GetRasterBand(band).ReadAsArray()
-            out_source.GetRasterBand(band).WriteArray(band_array)
-        out_source = image_source = label_source = band_array = None
-
-
-class MergeLabelRaster(luigi.Task):
-    """Merge all tiles that correspond to a single raw image so as to produce a
-    big labelled version of that image. This task completes the process for an
-    image by reproducing big images.
-
-    This task is done through running gdal_merge tool, with a compressing
-    option to keep raster size reasonable.
-
-    Attributes
-    ----------
-    datapath : str
-        Path towards the Tanzania challenge data
-    filename : str
-        Name of the area of interest, *e.g.* `grid_001`
-    tile_size : int
-        Number of pixels that must be considered in both direction (east-west,
-    north-south) in tile definition. This constraint is relaxed when
-    considering border tiles (on east and south borders, especially).
-    background_color : list of 3 ints
-        RGB tuple for the raster background
-    complete_color : list of 3 ints
-        RGB tuple corresponding to `complete` building representation
-    incomplete_color : list of 3 ints
-        RGB tuple corresponding to `incomplete` building representation
-    foundation_color : list of 3 ints
-        RGB tuple corresponding to `foundation` building representation
-
-    """
-    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
-    filename = luigi.Parameter()
-    tile_size = luigi.IntParameter(default=5000)
-    background_color = luigi.ListParameter(default=[0, 0, 0])
-    complete_color = luigi.ListParameter(default=[50, 200, 50]) # Green
-    incomplete_color = luigi.ListParameter(default=[200, 200, 50]) # Yellow
-    foundation_color = luigi.ListParameter(default=[200, 50, 50]) # Red
-
-    def requires(self):
-        task_in = {}
-        ds = gdal.Open(os.path.join(self.datapath, "input", "training",
-                                    "images", self.filename + ".tif"))
-        xsize = ds.RasterXSize
-        ysize = ds.RasterYSize
-        for x in range(0, xsize, self.tile_size):
-            tile_width = min(xsize - x, self.tile_size)
-            for y in range(0, ysize, self.tile_size):
-                task_id = str(x) + "-" + str(y)
-                tile_height = min(ysize - y, self.tile_size)
-                task_in[task_id] = ReprojectTileRaster(self.datapath,
-                                                       self.filename,
-                                                       x, y,
-                                                       tile_width, tile_height,
-                                                       self.background_color,
-                                                       self.complete_color,
-                                                       self.incomplete_color,
-                                                       self.foundation_color)
-        ds = None
-        return task_in
-
-    def output(self):
-        output_path = os.path.join(self.datapath, "input",
-                                   "training", "merged_labels")
-        os.makedirs(output_path, exist_ok=True)
-        output_filename = self.filename + ".tif"
-        return luigi.LocalTarget(os.path.join(output_path, output_filename))
-
-    def run(self):
-        input_paths = [value.path for key, value in self.input().items()]
-        gdal_merge_args = ['-o', self.output().path,
-                           *input_paths,
-                           '-co', 'COMPRESS=DEFLATE',
-                           '-q', '-v']
-        subprocess.call(["gdal_merge.py", *gdal_merge_args])
-
-
-class MergeAllLabelRasters(luigi.Task):
-    """Final task that calls `MergeLabelRaster` for each raw image contained
-    into the dataset.
-
-    Attributes
-    ----------
-    datapath : str
-        Path towards the Tanzania challenge data
-    tile_size : int
-        Number of pixels that must be considered in both direction (east-west,
-    north-south) in tile definition. This constraint is relaxed when
-    considering border tiles (on east and south borders, especially).
-    background_color : list of 3 ints
-        RGB tuple for the raster background
-    complete_color : list of 3 ints
-        RGB tuple corresponding to `complete` building representation
-    incomplete_color : list of 3 ints
-        RGB tuple corresponding to `incomplete` building representation
-    foundation_color : list of 3 ints
-        RGB tuple corresponding to `foundation` building representation
-
-    """
-    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
-    tile_size = luigi.IntParameter(default=5000)
-    background_color = luigi.ListParameter(default=[0, 0, 0])
-    complete_color = luigi.ListParameter(default=[50, 200, 50]) # Green
-    incomplete_color = luigi.ListParameter(default=[200, 200, 50]) # Yellow
-    foundation_color = luigi.ListParameter(default=[200, 50, 50]) # Red
-
-    def requires(self):
-        datadir = os.path.join(self.datapath, "input", "training", "images")
-        filenames = [filename.split('.')[0]
-                     for filename in os.listdir(datadir)]
-        return {f: MergeLabelRaster(self.datapath, f, self.tile_size,
-                                    self.background_color,
-                                    self.complete_color,
-                                    self.incomplete_color,
-                                    self.foundation_color)
-                for f in filenames}
 
     def complete(self):
         return False
