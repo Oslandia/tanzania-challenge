@@ -494,7 +494,11 @@ class MergeLabelRaster(luigi.Task):
                 task_in[task_id] = ReprojectTileRaster(self.datapath,
                                                        self.filename,
                                                        x, y,
-                                                       tile_width, tile_height)
+                                                       tile_width, tile_height,
+                                                       self.background_color,
+                                                       self.complete_color,
+                                                       self.incomplete_color,
+                                                       self.foundation_color)
         ds = None
         return task_in
 
