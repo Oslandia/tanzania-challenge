@@ -62,14 +62,19 @@ class GenerateSubTile(luigi.Task):
     tile_height = luigi.IntParameter(default=5000)
 
     def output(self):
-        output_path = os.path.join(self.datapath, "tiles")
+        output_path = os.path.join(self.datapath, "preprocessed",
+                                   str(self.tile_width)+"_"+str(self.tile_height),
+                                   "training", "images")
         os.makedirs(output_path, exist_ok=True)
-        output_filename_suffix = "_{}_{}.tif".format(self.min_x, self.min_y)
+        output_filename_suffix = "_{}_{}_{}_{}.tif".format(self.tile_width,
+                                                           self.tile_height,
+                                                           self.min_x,
+                                                           self.min_y)
         output_filename = self.filename + output_filename_suffix
         return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
     def run(self):
-        input_path = os.path.join(self.datapath, "images",
+        input_path = os.path.join(self.datapath, "input", "training", "images",
                                   self.filename + ".tif")
         gdal_translate_args = ['-srcwin',
                                self.min_x, self.min_y,
@@ -100,17 +105,19 @@ class GetImageFeatures(luigi.Task):
     filename = luigi.Parameter()
 
     def output(self):
-        output_path = os.path.join(self.datapath, "features")
+        output_path = os.path.join(self.datapath, "input",
+                                   "training", "features")
         os.makedirs(output_path, exist_ok=True)
         output_filename = os.path.join(output_path, self.filename + ".json")
         return luigi.LocalTarget(output_filename)
 
     def run(self):
-        input_filename = os.path.join(self.datapath, "images",
-                                      self.filename + ".tif")
+        input_filename = os.path.join(self.datapath, "input", "training",
+                                      "images", self.filename + ".tif")
         coordinates = utils.get_image_features(input_filename)
         with self.output().open('w') as fobj:
             json.dump(coordinates, fobj)
+
 
 class GetTileFeatures(luigi.Task):
     """Retrieve some basic geographical features of tiled images and save them into a
@@ -151,9 +158,14 @@ class GetTileFeatures(luigi.Task):
                                self.tile_width, self.tile_height)
 
     def output(self):
-        output_path = os.path.join(self.datapath, "features")
+        output_path = os.path.join(self.datapath, "preprocessed",
+                                   str(self.tile_width)+"_"+str(self.tile_height),
+                                   "training", "features")
         os.makedirs(output_path, exist_ok=True)
-        output_filename_suffix = "_{}_{}.json".format(self.min_x, self.min_y)
+        output_filename_suffix = "_{}_{}_{}_{}.json".format(self.tile_width,
+                                                            self.tile_height,
+                                                            self.min_x,
+                                                            self.min_y)
         output_filename = self.filename + output_filename_suffix
         return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
@@ -183,7 +195,7 @@ class StoreLabelsToDatabase(luigi.Task):
         return GetImageFeatures(self.datapath, self.filename)
 
     def output(self):
-        output_path = os.path.join(self.datapath, "ogr")
+        output_path = os.path.join(self.datapath, "input", "training", "ogr")
         os.makedirs(output_path, exist_ok=True)
         filename = self.filename + "-task-ogr2ogr.txt"
         output_filename = os.path.join(output_path, filename)
@@ -192,8 +204,8 @@ class StoreLabelsToDatabase(luigi.Task):
     def run(self):
         with self.input().open('r') as fobj:
             coordinates = json.load(fobj)
-        label_filename = os.path.join(self.datapath, "labels",
-                                      self.filename + ".geojson")
+        label_filename = os.path.join(self.datapath, "input", "training",
+                                      "labels", self.filename + ".geojson")
         dbname = utils.confparser.get("database", "dbname")
         user = utils.confparser.get("database", "user")
         password = utils.confparser.get("database", "password")
@@ -269,9 +281,14 @@ class GenerateTileRaster(luigi.Task):
                                                 self.short_filename)}
 
     def output(self):
-        output_path = os.path.join(self.datapath, "tiled_labels")
+        output_path = os.path.join(self.datapath, "preprocessed",
+                                   str(self.tile_width),
+                                   "training", "labels")
         os.makedirs(output_path, exist_ok=True)
-        output_filename_suffix = "_{}_{}.tif".format(self.min_x, self.min_y)
+        output_filename_suffix = "_{}_{}_{}_{}.png".format(self.tile_width,
+                                                           self.tile_height,
+                                                           self.min_x,
+                                                           self.min_y)
         output_filename = self.filename + output_filename_suffix
         return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
@@ -340,9 +357,14 @@ class ReprojectTileRaster(luigi.Task):
 
 
     def output(self):
-        output_path = os.path.join(self.datapath, "reprojected_tiled_labels")
+        output_path = os.path.join(self.datapath, "preprocessed",
+                                   str(self.tile_width),
+                                   "training", "proj_labels")
         os.makedirs(output_path, exist_ok=True)
-        output_filename_suffix = "_{}_{}.tif".format(self.min_x, self.min_y)
+        output_filename_suffix = "_{}_{}_{}_{}.tif".format(self.tile_width,
+                                                           self.tile_height,
+                                                           self.min_x,
+                                                           self.min_y)
         output_filename = self.filename + output_filename_suffix
         return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
@@ -401,8 +423,8 @@ class MergeLabelRaster(luigi.Task):
 
     def requires(self):
         task_in = {}
-        ds = gdal.Open(os.path.join(self.datapath, "images",
-                                    self.filename + ".tif"))
+        ds = gdal.Open(os.path.join(self.datapath, "input", "training",
+                                    "images", self.filename + ".tif"))
         xsize = ds.RasterXSize
         ysize = ds.RasterYSize
         for x in range(0, xsize, self.tile_size):
@@ -418,14 +440,14 @@ class MergeLabelRaster(luigi.Task):
         return task_in
 
     def output(self):
-        output_path = os.path.join(self.datapath, "merged_labels")
+        output_path = os.path.join(self.datapath, "input",
+                                   "training", "merged_labels")
         os.makedirs(output_path, exist_ok=True)
         output_filename = self.filename + ".tif"
         return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
     def run(self):
         input_paths = [value.path for key, value in self.input().items()]
-        print(input_paths)
         gdal_merge_args = ['-o', self.output().path,
                            *input_paths,
                            '-co', 'COMPRESS=DEFLATE',
@@ -463,7 +485,7 @@ class MergeAllLabelRasters(luigi.Task):
     foundation_color = luigi.ListParameter(default=[200, 50, 50]) # Red
 
     def requires(self):
-        datadir = os.path.join(self.datapath, "images")
+        datadir = os.path.join(self.datapath, "input", "training", "images")
         filenames = [filename.split('.')[0]
                      for filename in os.listdir(datadir)]
         return {f: MergeLabelRaster(self.datapath, f, self.tile_size,
