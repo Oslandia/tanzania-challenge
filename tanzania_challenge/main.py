@@ -303,6 +303,65 @@ class GenerateTileRaster(luigi.Task):
                               features, classes)
 
 
+class GenerateAllTileRasters(luigi.Task):
+    """
+
+    Attributes
+    ----------
+    datapath : str
+        Path towards the Tanzania challenge data
+    filename : str
+        Name of the area of interest, *e.g.* `grid_001`
+    tile_size : int
+        Number of pixels that must be considered in both direction (east-west,
+    north-south) in tile definition. This constraint is relaxed when
+    considering border tiles (on east and south borders, especially).
+    background_color : list of 3 ints
+        RGB tuple for the raster background
+    complete_color : list of 3 ints
+        RGB tuple corresponding to `complete` building representation
+    incomplete_color : list of 3 ints
+        RGB tuple corresponding to `incomplete` building representation
+    foundation_color : list of 3 ints
+        RGB tuple corresponding to `foundation` building representation
+
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    filename = luigi.Parameter()
+    tile_size = luigi.IntParameter(default=5000)
+    background_color = luigi.ListParameter(default=[0, 0, 0])
+    complete_color = luigi.ListParameter(default=[50, 200, 50]) # Green
+    incomplete_color = luigi.ListParameter(default=[200, 200, 50]) # Yellow
+    foundation_color = luigi.ListParameter(default=[200, 50, 50]) # Red
+
+    def requires(self):
+        task_in = {}
+        ds = gdal.Open(os.path.join(self.datapath, "input", "training",
+                                    "images", self.filename + ".tif"))
+        xsize = ds.RasterXSize
+        ysize = ds.RasterYSize
+        for x in range(0, xsize, self.tile_size):
+            tile_width = min(xsize - x, self.tile_size)
+            for y in range(0, ysize, self.tile_size):
+                task_id = str(x) + "-" + str(y)
+                tile_height = min(ysize - y, self.tile_size)
+                if tile_width == tile_height == self.tile_size:
+                    task_in[task_id] = GenerateTileRaster(self.datapath,
+                                                          self.filename,
+                                                          x, y,
+                                                          tile_width,
+                                                          tile_height,
+                                                          self.background_color,
+                                                          self.complete_color,
+                                                          self.incomplete_color,
+                                                          self.foundation_color)
+        ds = None
+        return task_in
+
+    def complete(self):
+        return False
+
+
 class ReprojectTileRaster(luigi.Task):
     """Reproject label tiles after Mapnik rendering process, as it produces
     simple image without geographical metadata. The tile metadata are deduced
