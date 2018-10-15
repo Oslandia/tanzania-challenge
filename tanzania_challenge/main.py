@@ -56,6 +56,7 @@ class GenerateSubTile(luigi.Task):
 
     """
     datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="training")
     filename = luigi.Parameter()
     min_x = luigi.IntParameter()
     min_y = luigi.IntParameter()
@@ -66,7 +67,7 @@ class GenerateSubTile(luigi.Task):
     def output(self):
         output_path = os.path.join(self.datapath, "preprocessed",
                                    str(self.tile_size),
-                                   "training", "images")
+                                   self.dataset, "images")
         os.makedirs(output_path, exist_ok=True)
         output_filename_suffix = "_{}_{}_{}_{}.tif".format(self.tile_width,
                                                            self.tile_height,
@@ -148,6 +149,7 @@ class GetTileFeatures(luigi.Task):
 
     """
     datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="training")
     filename = luigi.Parameter()
     min_x = luigi.IntParameter()
     min_y = luigi.IntParameter()
@@ -156,7 +158,8 @@ class GetTileFeatures(luigi.Task):
     tile_height = luigi.IntParameter(default=5000)
 
     def requires(self):
-        return GenerateSubTile(self.datapath, self.filename,
+        return GenerateSubTile(self.datapath, self.dataset,
+                               self.filename,
                                self.min_x, self.min_y,
                                self.tile_size,
                                self.tile_width, self.tile_height)
@@ -164,7 +167,7 @@ class GetTileFeatures(luigi.Task):
     def output(self):
         output_path = os.path.join(self.datapath, "preprocessed",
                                    str(self.tile_size),
-                                   "training", "features")
+                                   self.dataset, "features")
         os.makedirs(output_path, exist_ok=True)
         output_filename_suffix = "_{}_{}_{}_{}.json".format(self.tile_width,
                                                             self.tile_height,
@@ -238,6 +241,7 @@ class ExtractTileItems(luigi.Task):
     """
     """
     datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="training")
     filename = luigi.Parameter()
     min_x = luigi.IntParameter()
     min_y = luigi.IntParameter()
@@ -247,7 +251,8 @@ class ExtractTileItems(luigi.Task):
 
     def requires(self):
         return {"db": StoreLabelsToDatabase(self.datapath, self.filename),
-                "features": GetTileFeatures(self.datapath, self.filename,
+                "features": GetTileFeatures(self.datapath, self.dataset,
+                                            self.filename,
                                             self.min_x, self.min_y,
                                             self.tile_size,
                                             self.tile_width, self.tile_height)}
@@ -255,7 +260,7 @@ class ExtractTileItems(luigi.Task):
     def output(self):
         output_path = os.path.join(self.datapath, "preprocessed",
                                    str(self.tile_size),
-                                   "training", "items")
+                                   self.dataset, "items")
         os.makedirs(output_path, exist_ok=True)
         output_filename_suffix = "_{}_{}_{}_{}.json".format(self.tile_width,
                                                             self.tile_height,
@@ -314,6 +319,7 @@ class ExtractAllTileItems(luigi.Task):
 
     """
     datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="training")
     filename = luigi.Parameter()
     tile_size = luigi.IntParameter(default=5000)
 
@@ -329,6 +335,7 @@ class ExtractAllTileItems(luigi.Task):
                 task_id = str(x) + "-" + str(y)
                 tile_height = min(ysize - y, self.tile_size)
                 task_in[task_id] = ExtractTileItems(self.datapath,
+                                                    self.dataset,
                                                     self.filename,
                                                     x, y, self.tile_size,
                                                     tile_width, tile_height)
