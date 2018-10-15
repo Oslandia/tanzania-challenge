@@ -131,4 +131,4 @@ def generate_raster(output_path, area, features, classes):
     m.layers.append(layer)
     m.zoom_to_box(mapnik.Box2d(features['west'], features['south'],
                                features['east'], features['north']))
-    mapnik.render_to_file(m, output_path, 'tif')
+    mapnik.render_to_file(m, output_path, 'png')
