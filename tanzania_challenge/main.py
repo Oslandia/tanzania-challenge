@@ -9,14 +9,14 @@ luigi --workers <nb-workers> --local-scheduler --module tanzania_challenge.main
 ```
 
 18/09/21 update: the last pipeline task is `MergeAllLabelRasters`, it gives
-labelled version of raw images, with complete buildings in green, uncomplete
+labelled version of raw images, with complete buildings in green, incomplete
 buildings in yellow and foundations in red. You may run it with the parameters of
 your choice. As an example:
 
 ```
 luigi --workers 3 --local-scheduler --module tanzania_challenge.main
 MergeAllLabelRasters --datapath ./data/open_ai_tanzania --tile-size 10000
---background-color 0 0 0 --complete-color 50 200 50 --uncomplete-color 200 200
+--background-color 0 0 0 --complete-color 50 200 50 --incomplete-color 200 200
 50 --foundation-color 200 50 50
 ```
 
@@ -240,8 +240,8 @@ class GenerateTileRaster(luigi.Task):
         RGB tuple for the raster background
     complete_color : list of 3 ints
         RGB tuple corresponding to `complete` building representation
-    uncomplete_color : list of 3 ints
-        RGB tuple corresponding to `uncomplete` building representation
+    incomplete_color : list of 3 ints
+        RGB tuple corresponding to `incomplete` building representation
     foundation_color : list of 3 ints
         RGB tuple corresponding to `foundation` building representation
 
@@ -309,8 +309,8 @@ class ReprojectTileRaster(luigi.Task):
         RGB tuple for the raster background
     complete_color : list of 3 ints
         RGB tuple corresponding to `complete` building representation
-    uncomplete_color : list of 3 ints
-        RGB tuple corresponding to `uncomplete` building representation
+    incomplete_color : list of 3 ints
+        RGB tuple corresponding to `incomplete` building representation
     foundation_color : list of 3 ints
         RGB tuple corresponding to `foundation` building representation
 
@@ -385,8 +385,8 @@ class MergeLabelRaster(luigi.Task):
         RGB tuple for the raster background
     complete_color : list of 3 ints
         RGB tuple corresponding to `complete` building representation
-    uncomplete_color : list of 3 ints
-        RGB tuple corresponding to `uncomplete` building representation
+    incomplete_color : list of 3 ints
+        RGB tuple corresponding to `incomplete` building representation
     foundation_color : list of 3 ints
         RGB tuple corresponding to `foundation` building representation
 
@@ -436,7 +436,7 @@ class MergeLabelRaster(luigi.Task):
 class MergeAllLabelRasters(luigi.Task):
     """Final task that calls `MergeLabelRaster` for each raw image contained
     into the dataset.
-    
+
     Attributes
     ----------
     datapath : str
@@ -449,8 +449,8 @@ class MergeAllLabelRasters(luigi.Task):
         RGB tuple for the raster background
     complete_color : list of 3 ints
         RGB tuple corresponding to `complete` building representation
-    uncomplete_color : list of 3 ints
-        RGB tuple corresponding to `uncomplete` building representation
+    incomplete_color : list of 3 ints
+        RGB tuple corresponding to `incomplete` building representation
     foundation_color : list of 3 ints
         RGB tuple corresponding to `foundation` building representation
 
