@@ -344,3 +344,93 @@ class ExtractAllTileItems(luigi.Task):
 
     def complete(self):
         return False
+
+
+class ExtractValidTileItems(luigi.Task):
+    """
+
+    Attributes
+    ----------
+    datapath : str
+        Path towards the Tanzania challenge data
+    filename : str
+        Name of the area of interest, *e.g.* `grid_001`
+    tile_size : int
+        Number of pixels that must be considered in both direction (east-west,
+    north-south) in tile definition. This constraint is relaxed when
+    considering border tiles (on east and south borders, especially).
+
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="training")
+    filename = luigi.Parameter()
+    tile_size = luigi.IntParameter(default=5000)
+
+    def requires(self):
+        task_in = {}
+        building_inventory = ""
+        tile_name = "{filename}_{tile_width}_{tile_height}_{min_x}_{min_y}"
+        raster_name = os.path.join(self.datapath, "input", "training",
+                                   "images", self.filename + ".tif")
+        features = utils.get_image_features(raster_name)
+        x_offset = (features["east"] - features["west"]) * self.tile_size / features["width"]
+        y_offset = (features["north"] - features["south"]) * self.tile_size / features["height"]
+
+        for x in range(0, features["width"], self.tile_size):
+            cx = features["west"] + (features["east"] - features["west"]) * x / features["width"]
+            tile_width = min(features["width"] - x, self.tile_size)
+            for y in range(0, features["height"], self.tile_size):
+                cy = features["north"] + (features["south"] - features["north"]) * y / features["height"]
+                task_id = str(x) + "-" + str(y)
+                tile_height = min(features["height"] - y, self.tile_size)
+                nb_buildings = self.valid_tile(cx, cy, x_offset, y_offset,
+                                               features["srid"])
+                filled_tile_name = tile_name.format(filename=self.filename,
+                                                    tile_width=tile_width,
+                                                    tile_height=tile_height,
+                                                    min_x=x, min_y=y)
+                building_inventory += (filled_tile_name + " "
+                                       + str(nb_buildings) + "\n")
+                if nb_buildings > 0:
+                    task_in[task_id] = ExtractTileItems(self.datapath,
+                                                        self.dataset,
+                                                        self.filename,
+                                                        x, y, self.tile_size,
+                                                        tile_width,
+                                                        tile_height)
+        inventory_filename = os.path.join(self.datapath, "preprocessed",
+                                          "buildings_per_tile.txt")
+        fobj = open(inventory_filename, "a+")
+        fobj.write(building_inventory)
+        fobj.close()
+        return task_in
+
+    def valid_tile(self, x, y, x_offset, y_offset, srid):
+        """
+        """
+        query = ("WITH bbox AS ("
+                 "SELECT ST_MakeEnvelope("
+                 "{west}, {south}, {east}, {north}, {srid}) AS geom"
+                 ") "
+                 "SELECT count(st_intersection("
+                 "st_makevalid(wkb_geometry), bbox.geom)) "
+                 "FROM {table} JOIN bbox "
+                 "ON st_intersects(st_makevalid(wkb_geometry), bbox.geom)"
+                 ";").format(table=self.filename, west=x, south=y-y_offset,
+                             east=x+x_offset, north=y, srid=srid)
+        config = utils.confparser["database"]
+        connection_string = ("dbname={dbname} host={host} port={port} "
+                             "user={user} password={password}"
+                             "").format(dbname=config["dbname"],
+                                        host=config["host"],
+                                        port=config["port"],
+                                        user=config["user"],
+                                        password=config["password"])
+        connection = psycopg2.connect(connection_string)
+        cursor = connection.cursor()
+        cursor.execute(query)
+        rset = cursor.fetchone()
+        return rset[0]
+
+    def complete(self):
+        return False
