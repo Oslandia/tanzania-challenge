@@ -276,10 +276,11 @@ class ExtractTileItems(luigi.Task):
                  "SELECT ST_MakeEnvelope("
                  "{west}, {south}, {east}, {north}, {srid}) AS geom"
                  ") "
-                 "SELECT condition, st_intersection("
-                 "st_makevalid(wkb_geometry), bbox.geom) "
+                 "SELECT condition, (st_dump("
+                 "st_intersection(st_makevalid(wkb_geometry), bbox.geom))"
+                 ").geom::geometry(Polygon, {srid}) "
                  "FROM {table} JOIN bbox "
-                 "ON st_intersects(wkb_geometry, bbox.geom)"
+                 "ON st_intersects(st_makevalid(wkb_geometry), bbox.geom)"
                  ";").format(table=self.filename, west=features["west"],
                              south=features["south"], east=features["east"],
                              north=features["north"], srid=features["srid"])
@@ -412,8 +413,8 @@ class ExtractValidTileItems(luigi.Task):
                  "SELECT ST_MakeEnvelope("
                  "{west}, {south}, {east}, {north}, {srid}) AS geom"
                  ") "
-                 "SELECT count(st_intersection("
-                 "st_makevalid(wkb_geometry), bbox.geom)) "
+                 "SELECT count("
+                 "st_intersection(st_makevalid(wkb_geometry), bbox.geom)) "
                  "FROM {table} JOIN bbox "
                  "ON st_intersects(st_makevalid(wkb_geometry), bbox.geom)"
                  ";").format(table=self.filename, west=x, south=y-y_offset,
