@@ -64,6 +64,10 @@ class GenerateSubTile(luigi.Task):
     tile_width = luigi.IntParameter(default=5000)
     tile_height = luigi.IntParameter(default=5000)
 
+    @property
+    def input_dataset(self):
+        return "testing" if self.dataset == "testing" else "training"
+
     def output(self):
         output_path = os.path.join(self.datapath, "preprocessed",
                                    str(self.tile_size),
@@ -77,14 +81,54 @@ class GenerateSubTile(luigi.Task):
         return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
     def run(self):
-        input_path = os.path.join(self.datapath, "input", "training", "images",
-                                  self.filename + ".tif")
+        input_path = os.path.join(self.datapath, "input", self.input_dataset,
+                                  "images", self.filename + ".tif")
         gdal_translate_args = ['-srcwin',
                                self.min_x, self.min_y,
                                self.tile_width, self.tile_height,
                                input_path,
                                self.output().path]
         sh.gdal_translate(gdal_translate_args)
+
+
+class GenerateAllSubTiles(luigi.Task):
+    """
+
+    Attributes
+    ----------
+    datapath : str
+        Path towards the Tanzania challenge data
+    filename : str
+        Name of the area of interest, *e.g.* `grid_001`
+    tile_size : int
+        Number of pixels that must be considered in both direction (east-west,
+    north-south) in tile definition. This constraint is relaxed when
+    considering border tiles (on east and south borders, especially).
+
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="testing")
+    filename = luigi.Parameter()
+    tile_size = luigi.IntParameter(default=5000)
+
+    def requires(self):
+        task_in = {}
+        ds = gdal.Open(os.path.join(self.datapath, "input", self.dataset,
+                                    "images", self.filename + ".tif"))
+        xsize = ds.RasterXSize
+        ysize = ds.RasterYSize
+        for x in range(0, xsize, self.tile_size):
+            tile_width = min(xsize - x, self.tile_size)
+            for y in range(0, ysize, self.tile_size):
+                task_id = str(x) + "-" + str(y)
+                tile_height = min(ysize - y, self.tile_size)
+                task_in[task_id] = GenerateSubTile(self.datapath,
+                                                   self.dataset,
+                                                   self.filename,
+                                                   x, y, self.tile_size,
+                                                   tile_width, tile_height)
+        ds = None
+        return task_in
 
 
 class GetImageFeatures(luigi.Task):
@@ -106,16 +150,21 @@ class GetImageFeatures(luigi.Task):
     """
     datapath = luigi.Parameter(default="./data/open_ai_tanzania")
     filename = luigi.Parameter()
+    dataset = luigi.Parameter(default="training")
+
+    @property
+    def input_dataset(self):
+        return "testing" if self.dataset == "testing" else "training"
 
     def output(self):
         output_path = os.path.join(self.datapath, "input",
-                                   "training", "features")
+                                   self.dataset, "features")
         os.makedirs(output_path, exist_ok=True)
         output_filename = os.path.join(output_path, self.filename + ".json")
         return luigi.LocalTarget(output_filename)
 
     def run(self):
-        input_filename = os.path.join(self.datapath, "input", "training",
+        input_filename = os.path.join(self.datapath, "input", self.input_dataset,
                                       "images", self.filename + ".tif")
         coordinates = utils.get_image_features(input_filename)
         with self.output().open('w') as fobj:
@@ -180,6 +229,46 @@ class GetTileFeatures(luigi.Task):
         coordinates = utils.get_image_features(self.input().path)
         with self.output().open('w') as fobj:
             json.dump(coordinates, fobj)
+
+
+class GetAllTileFeatures(luigi.Task):
+    """
+
+    Attributes
+    ----------
+    datapath : str
+        Path towards the Tanzania challenge data
+    filename : str
+        Name of the area of interest, *e.g.* `grid_001`
+    tile_size : int
+        Number of pixels that must be considered in both direction (east-west,
+    north-south) in tile definition. This constraint is relaxed when
+    considering border tiles (on east and south borders, especially).
+
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="testing")
+    filename = luigi.Parameter()
+    tile_size = luigi.IntParameter(default=5000)
+
+    def requires(self):
+        task_in = {}
+        ds = gdal.Open(os.path.join(self.datapath, "input", self.dataset,
+                                    "images", self.filename + ".tif"))
+        xsize = ds.RasterXSize
+        ysize = ds.RasterYSize
+        for x in range(0, xsize, self.tile_size):
+            tile_width = min(xsize - x, self.tile_size)
+            for y in range(0, ysize, self.tile_size):
+                task_id = str(x) + "-" + str(y)
+                tile_height = min(ysize - y, self.tile_size)
+                task_in[task_id] = GetTileFeatures(self.datapath,
+                                                   self.dataset,
+                                                   self.filename,
+                                                   x, y, self.tile_size,
+                                                   tile_width, tile_height)
+        ds = None
+        return task_in
 
 
 class StoreLabelsToDatabase(luigi.Task):
@@ -326,7 +415,7 @@ class ExtractAllTileItems(luigi.Task):
 
     def requires(self):
         task_in = {}
-        ds = gdal.Open(os.path.join(self.datapath, "input", "training",
+        ds = gdal.Open(os.path.join(self.datapath, "input", self.dataset,
                                     "images", self.filename + ".tif"))
         xsize = ds.RasterXSize
         ysize = ds.RasterYSize
@@ -371,7 +460,7 @@ class ExtractValidTileItems(luigi.Task):
         task_in = {}
         building_inventory = ""
         tile_name = "{filename}_{tile_width}_{tile_height}_{min_x}_{min_y}"
-        raster_name = os.path.join(self.datapath, "input", "training",
+        raster_name = os.path.join(self.datapath, "input", self.dataset,
                                    "images", self.filename + ".tif")
         features = utils.get_image_features(raster_name)
         x_offset = (features["east"] - features["west"]) * self.tile_size / features["width"]
