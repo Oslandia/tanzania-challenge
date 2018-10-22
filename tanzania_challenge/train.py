@@ -48,21 +48,18 @@ if __name__ == "__main__":
                               "instance_segmentation", "checkpoints")
     model = modellib.MaskRCNN(mode="training", config=config,
                               model_dir=model_path)
-    model.load_weights(args.pretrained_model, by_name=True,
-                       exclude=["mrcnn_class_logits", "mrcnn_bbox_fc",
-                                "mrcnn_bbox", "mrcnn_mask"])
 
     model.train(train_dataset=train_bd, val_dataset=val_bd,
                 learning_rate=config.LEARNING_RATE,
                 epochs=20,
-                layers='heads')
-
-    model.train(train_dataset=train_bd, val_dataset=val_bd,
-                learning_rate=config.LEARNING_RATE,
-                epochs=40,
-                layers='4+')
-
-    model.train(train_dataset=train_bd, val_dataset=val_bd,
-                learning_rate=config.LEARNING_RATE,
-                epochs=60,
                 layers='all')
+
+    model.train(train_dataset=train_bd, val_dataset=val_bd,
+            learning_rate=config.LEARNING_RATE/2,
+            epochs=40,
+            layers='all')
+
+    model.train(train_dataset=train_bd, val_dataset=val_bd,
+            learning_rate=config.LEARNING_RATE/10,
+            epochs=60,
+            layers='all')
