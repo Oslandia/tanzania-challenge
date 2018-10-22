@@ -85,7 +85,7 @@ class BuildingDataset(Dataset):
             items = json.load(fobj)
         with open(info["feature_path"]) as fobj:
             features = json.load(fobj)
-        conditions = [self.condition_dict[v["condition"]]
+        conditions = [self.condition_dict.get(v["condition"], 1)
                       for k, v in items.items()]
         if len(conditions) == 0:
             return [], np.array(conditions, dtype=np.uint8)
