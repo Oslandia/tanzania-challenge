@@ -524,3 +524,30 @@ class ExtractValidTileItems(luigi.Task):
 
     def complete(self):
         return False
+
+
+class TrainMaskRCNN(luigi.Task):
+    """Train a MaskRCNN model with tiled image
+
+    Parameters
+    ----------
+    datapath : str
+        Path of Tanzania dataset onto the file system
+    tile_size : int
+        Size of tiled images to consider during training
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    tile_size = luigi.IntParameter(default=5000)
+
+    def requires(self):
+        return [ExtractValidTileItems(self.datapath, "training",
+                                      f.split(".")[0], self.tile_size)
+                for f in os.path.join(self.datapath, "input",
+                                      "training", "images")]
+
+    def output(self):
+        return os.path.join(datapath, "output",
+                            "instance_segmentation", "checkpoints")
+
+    def run(self):
+        train.TrainMaskRCNN(self.datapath)
