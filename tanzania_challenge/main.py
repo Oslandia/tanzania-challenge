@@ -32,7 +32,7 @@ import psycopg2
 import sh
 import subprocess
 
-from tanzania_challenge import utils
+from tanzania_challenge import utils, train, inference, postprocessing
 
 
 class GenerateSubTile(luigi.Task):
@@ -537,7 +537,7 @@ class TrainMaskRCNN(luigi.Task):
         Size of tiled images to consider during training
     """
     datapath = luigi.Parameter(default="./data/open_ai_tanzania")
-    tile_size = luigi.IntParameter(default=5000)
+    tile_size = luigi.IntParameter(default=384)
 
     def requires(self):
         return [ExtractValidTileItems(self.datapath, "training",
@@ -546,8 +546,146 @@ class TrainMaskRCNN(luigi.Task):
                                       "training", "images")]
 
     def output(self):
-        return os.path.join(datapath, "output",
-                            "instance_segmentation", "checkpoints")
+        output_path = os.path.join(datapath, "output",
+                                   "instance_segmentation", "checkpoints")
+        output_filename = "_".join((self.filename, str(self.tile_width),
+                                    str(self.tile_height), str(self.min_x),
+                                    str(self.min_y))) + ".tif"
+        return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
     def run(self):
         train.TrainMaskRCNN(self.datapath)
+
+
+class PredictBuildingsOnTile(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="training")
+    filename = luigi.Parameter()
+    min_x = luigi.IntParameter()
+    min_y = luigi.IntParameter()
+    tile_size = luigi.IntParameter(default=384)
+    tile_width = luigi.IntParameter(default=384)
+    tile_height = luigi.IntParameter(default=384)
+
+    # FOR NOW, TRAINING PRODUCES A FOLDER THAT DEPENDS ON DATE,
+    # IT CAN'T BE USED AS A LUIGI REQUIRED TASK
+    # def requires(self):
+    #     return TrainMaskRCNN(self.datapath, self.tile_size)
+
+    def output(self):
+        output_path =  os.path.join(self.datapath, "preprocessed",
+                                    str(self.tile_size),
+                                    "testing", "predicted_labels")
+        os.makedirs(output_path, exist_ok=True)
+        output_filename = "_".join((self.filename, str(self.tile_width),
+                                    str(self.tile_height), str(self.min_x),
+                                    str(self.min_y))) + ".json"
+        return luigi.LocalTarget(os.path.join(output_path, output_filename))
+
+    def run(self):
+        filename = "_".join((self.filename, str(self.tile_width),
+                             str(self.tile_height), str(self.min_x),
+                             str(self.min_y)))
+        result = inference.predict_on_filename(self.datapath, self.tile_size, filename)
+        with open(self.output().path, "w") as fobj:
+            json.dump(result, fobj)
+
+
+class PredictBuildingsOnAllTiles(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    tile_size = luigi.IntParameter(default=384)
+
+    # FOR NOW, TRAINING PRODUCES A FOLDER THAT DEPENDS ON DATE,
+    # IT CAN'T BE USED AS A LUIGI REQUIRED TASK
+    # def requires(self):
+    #     return TrainMaskRCNN(self.datapath, self.tile_size)
+
+    def output(self):
+        output_path =  os.path.join(self.datapath, "preprocessed",
+                                    str(self.tile_size), "testing")
+        os.makedirs(output_path, exist_ok=True)
+        output_filename = "prediction_log.json"
+        return luigi.LocalTarget(os.path.join(output_path, output_filename))
+
+    def run(self):
+        log = inference.predict_on_folder(self.datapath, self.tile_size)
+        with open(self.output().path, "w") as fobj:
+            json.dump(log, fobj)
+
+
+class PostProcessTiles(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    filename = luigi.Parameter()
+    tile_size = luigi.IntParameter(default=384)
+
+    @property
+    def tiles(self):
+        image_dir = os.path.join(self.datapath, "preprocessed",
+                                 str(self.tile_size), "testing", "images")
+        return [fname.split(".")[0] for fname in os.listdir(image_dir)
+                if self.filename in fname]
+
+    def requires(self):
+        task_dict = {}
+        task_dict["prediction"] = PredictBuildingsOnAllTiles(self.datapath,
+                                                             self.tile_size)
+        for t in self.tiles:
+            filename, width, height, min_x, min_y = t.split("_")
+            task_dict.update({"-".join(("features", t)):
+                              GetTileFeatures(self.datapath, "testing",
+                                              filename, min_x, min_y,
+                                              self.tile_size, width, height)})
+        return task_dict
+
+    def output(self):
+        output_path =  os.path.join(self.datapath, "preprocessed",
+                                    str(self.tile_size),
+                                    "testing", "tiled_buildings")
+        os.makedirs(output_path, exist_ok=True)
+        output_filename = self.filename + ".csv"
+        return luigi.LocalTarget(os.path.join(output_path, output_filename))
+
+    def run(self):
+        results = []
+        for t in self.tiles:
+            feature_path = self.input()["-".join(("features", t))].path
+            with open(feature_path) as fobj:
+                features = json.load(fobj)
+            pred_path = feature_path.replace("features", "predicted_labels")
+            with open(pred_path) as fobj:
+                predictions = json.load(fobj)
+            _, _, _, min_x, min_y = t.split("_")
+            results.append(postprocessing.postprocess(predictions, features,
+                                                      min_x, min_y))
+        df = pd.DataFrame(results, columns=["conf_completed",
+                                            "conf_unfinished",
+                                            "conf_foundation",
+                                            "coords_geo",
+                                            "coords_pixel"])
+        with open(self.output().path) as fobj:
+            df.to_csv(self.output().path)
+
+
+class PostProcessAllImages(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    tile_size = luigi.IntParameter(default=384)
+
+    @property
+    def filenames(self):
+        image_dir = os.path.join(self.datapath, "input", "testing", "images")
+        return [fname.split(".")[0] for fname in os.listdir(image_dir)]
+
+    def requires(self):
+        for filename in self.filenames:
+            yield PostProcessTiles(self.datapath, filename, self.tile_size)
+
+    def complete(self):
+        return False
