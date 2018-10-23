@@ -26,8 +26,10 @@ import geopandas as gpd
 import json
 import luigi
 from luigi.contrib.postgres import CopyToTable, PostgresQuery
+from multiprocessing import Pool
 import os
 from osgeo import gdal
+import pandas as pd
 import psycopg2
 import sh
 import subprocess
@@ -653,22 +655,17 @@ class PostProcessTiles(luigi.Task):
 
     def run(self):
         results = []
-        for t in self.tiles:
-            feature_path = self.input()["-".join(("features", t))].path
-            with open(feature_path) as fobj:
-                features = json.load(fobj)
-            pred_path = feature_path.replace("features", "predicted_labels")
-            with open(pred_path) as fobj:
-                predictions = json.load(fobj)
-            _, _, _, min_x, min_y = t.split("_")
-            results.append(postprocessing.postprocess(predictions, features,
-                                                      min_x, min_y))
-        df = pd.DataFrame(results, columns=["conf_completed",
-                                            "conf_unfinished",
-                                            "conf_foundation",
-                                            "coords_geo",
-                                            "coords_pixel"])
-        with open(self.output().path) as fobj:
+        with Pool() as p:
+            results = p.starmap(postprocessing.postprocess,
+                                [(t, self.input()) for t in self.tiles])
+
+        df = pd.DataFrame([l for l in results if len(l) > 0])
+        if not df.empty:
+            df.columns = ["conf_completed", "conf_unfinished",
+                          "conf_foundation", "coords_geo", "coords_pixel"]
+        print(df.shape)
+        df.index.name = "building_id"
+        with open(self.output().path, "w") as fobj:
             df.to_csv(self.output().path)
 
 

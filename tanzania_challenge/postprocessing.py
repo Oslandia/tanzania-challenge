@@ -2,6 +2,7 @@
 """
 
 import cv2
+import json
 import numpy as np
 import os
 from osgeo import gdal, osr
@@ -138,9 +139,16 @@ def add_polygon(polygon, class_id, score, results, geofeatures, min_x=0, min_y=0
     return results.append([*predictions, shape.wkt, pixel_shape.wkt])
 
 
-def postprocess(predictions, features, min_x, min_y):
+def postprocess(tile_name, input_dict):
     """
     """
+    _, _, _, min_x, min_y = tile_name.split("_")
+    feature_path = input_dict["-".join(("features", tile_name))].path
+    with open(feature_path) as fobj:
+        features = json.load(fobj)
+        pred_path = feature_path.replace("features", "predicted_labels")
+    with open(pred_path) as fobj:
+        predictions = json.load(fobj)
     results = [] 
     structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = predictions["masks"]
