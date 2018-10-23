@@ -38,3 +38,14 @@ class BuildingConfig(Config):
     LEARNING_MOMENTUM = 0.9
     LEARNING_RATE = 0.001
     WEIGHT_DECAY = 0.0001
+
+
+class BuildingInferenceConfig(Config):
+
+    NAME = "buildings"
+    NUM_CLASSES = 1 + 3
+    IMAGE_MIN_DIM = 384
+    IMAGE_MAX_DIM = 384
+
+    GPU_COUNT = 1
+    IMAGES_PER_GPU = 1

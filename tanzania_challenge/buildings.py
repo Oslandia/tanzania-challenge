@@ -47,6 +47,7 @@ class BuildingDataset(Dataset):
         image_dir = os.path.join(datadir, str(img_size), subset, "images")
         feature_dir = os.path.join(datadir, str(img_size), subset, "features")
         item_dir = os.path.join(datadir, str(img_size), subset, "items")
+        prediction_dir = os.path.join(datadir, str(img_size), subset, "predicted_labels")
         image_filenames = os.listdir(image_dir)
         raw_path = os.path.join(os.path.dirname(os.path.dirname(datadir)),
                                 "input", "images")
@@ -60,6 +61,8 @@ class BuildingDataset(Dataset):
                                                       filename.replace(".tif", ".json")),
                            item_path=os.path.join(item_dir,
                                                   filename.replace(".tif", ".json")),
+                           prediction_path=os.path.join(prediction_dir,
+                                                        filename.replace(".tif", ".json")),
                            width=img_size, height=img_size)
 
     def load_mask(self, image_id):
