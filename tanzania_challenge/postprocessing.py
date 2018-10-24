@@ -2,10 +2,12 @@
 """
 
 import cv2
+import geojson
 import json
 import numpy as np
 import os
 from osgeo import gdal, osr
+import shapely.geometry as shgeom
 
 def flatten(data):
     if len(data.shape) == 3:
@@ -174,5 +176,20 @@ def postprocess_tile(features, predictions, min_x, min_y):
     if len(mask) > 0:
         polygon = extract_geometry(mask, structure)
         add_polygon(polygon[0], class_ids, scores, results,
+                    features, min_x, min_y)
+    return results
+
+
+def postprocess_tile(features, predictions, min_x, min_y):
+    """
+    """
+    results = []
+    structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    masks = np.array(predictions["masks"], dtype=np.uint8)
+    class_ids = np.array(predictions["class_ids"], dtype=np.uint8)
+    scores = np.array(predictions["scores"], dtype=np.float32)
+    for mask, class_id, score in zip(masks, class_ids, scores):
+        polygon = extract_geometry(mask, structure)
+        add_polygon(polygon[0], class_id, score, results,
                     features, min_x, min_y)
     return results
