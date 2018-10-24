@@ -619,6 +619,56 @@ class PredictBuildingsOnAllTiles(luigi.Task):
             json.dump(log, fobj)
 
 
+class PostProcessTile(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="training")
+    filename = luigi.Parameter()
+    min_x = luigi.IntParameter()
+    min_y = luigi.IntParameter()
+    tile_size = luigi.IntParameter(default=384)
+    tile_width = luigi.IntParameter(default=384)
+    tile_height = luigi.IntParameter(default=384)
+
+    def requires(self):
+        return {"prediction": PredictBuildingsOnAllTiles(self.datapath,
+                                                         self.tile_size),
+                "features": GetTileFeatures(self.datapath, "testing",
+                                            self.filename, self.min_x,
+                                            self.min_y, self.tile_size,
+                                            self.tile_width, self.tile_height)}
+
+    def output(self):
+        output_path =  os.path.join(self.datapath, "preprocessed",
+                                    str(self.tile_size),
+                                    "testing", "tiled_predictions")
+        os.makedirs(output_path, exist_ok=True)
+        output_filename = "_".join((self.filename, str(self.tile_width),
+                                    str(self.tile_height), str(self.min_x),
+                                    str(self.min_y))) + ".csv"
+        return luigi.LocalTarget(os.path.join(output_path, output_filename))
+
+    def run(self):
+        feature_path = self.input()["features"].path
+        with open(feature_path) as fobj:
+            features = json.load(fobj)
+        pred_path = feature_path.replace("features", "predicted_labels")
+        with open(pred_path) as fobj:
+            predictions = json.load(fobj)
+        print(predictions.keys())
+        results = postprocessing.postprocess_tile(features, predictions,
+                                                  self.min_x, self.min_y)
+        df = pd.DataFrame(results)
+        if not df.empty:
+            df.columns = ["conf_completed", "conf_unfinished",
+                          "conf_foundation", "coords_geo", "coords_pixel"]
+        print(df.shape)
+        df.index.name = "building_id"
+        with open(self.output().path, "w") as fobj:
+            df.to_csv(self.output().path)
+
+
 class PostProcessTiles(luigi.Task):
     """
     """

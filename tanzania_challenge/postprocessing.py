@@ -16,14 +16,14 @@ def flatten(data):
 
 def count_pixels(data):
     if len(data.shape) == 3:
-        df = pd.DataFrame(flatten(data), columns=["red", "green", "blue"])                                   
+        df = pd.DataFrame(flatten(data), columns=["red", "green", "blue"])
         return df.groupby(["red", "green", "blue"])["red"].count()
     else:
         return pd.Series(flatten(data)).value_counts()
 
 def count_pixels(data):
     if len(data.shape) == 3:
-        df = pd.DataFrame(flatten(data), columns=["red", "green", "blue"])                                   
+        df = pd.DataFrame(flatten(data), columns=["red", "green", "blue"])
         return df.groupby(["red", "green", "blue"])["red"].count()
     else:
         return pd.Series(flatten(data)).value_counts()
@@ -146,14 +146,31 @@ def postprocess(tile_name, input_dict):
     feature_path = input_dict["-".join(("features", tile_name))].path
     with open(feature_path) as fobj:
         features = json.load(fobj)
-        pred_path = feature_path.replace("features", "predicted_labels")
+    pred_path = feature_path.replace("features", "predicted_labels")
     with open(pred_path) as fobj:
         predictions = json.load(fobj)
-    results = [] 
+    results = []
     structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = predictions["masks"]
     class_ids = predictions["class_ids"]
     scores = predictions["scores"]
+    print(np.array(mask).shape)
+    if len(mask) > 0:
+        polygon = extract_geometry(mask, structure)
+        add_polygon(polygon[0], class_ids, scores, results,
+                    features, min_x, min_y)
+    return results
+
+
+def postprocess_tile(features, predictions, min_x, min_y):
+    """
+    """
+    results = []
+    structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask = predictions["masks"]
+    class_ids = predictions["class_ids"]
+    scores = predictions["scores"]
+    print(np.array(mask).shape)
     if len(mask) > 0:
         polygon = extract_geometry(mask, structure)
         add_polygon(polygon[0], class_ids, scores, results,
