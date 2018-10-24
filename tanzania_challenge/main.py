@@ -632,8 +632,13 @@ class PostProcessTile(luigi.Task):
     tile_height = luigi.IntParameter(default=384)
 
     def requires(self):
-        return {"prediction": PredictBuildingsOnAllTiles(self.datapath,
-                                                         self.tile_size),
+        return {"prediction": PredictBuildingsOnTile(self.datapath,
+                                                     self.dataset,
+                                                     self.filename, self.min_x,
+                                                     self.min_y,
+                                                     self.tile_size,
+                                                     self.tile_width,
+                                                     self.tile_height),
                 "features": GetTileFeatures(self.datapath, "testing",
                                             self.filename, self.min_x,
                                             self.min_y, self.tile_size,
@@ -656,14 +661,12 @@ class PostProcessTile(luigi.Task):
         pred_path = feature_path.replace("features", "predicted_labels")
         with open(pred_path) as fobj:
             predictions = json.load(fobj)
-        print(predictions.keys())
         results = postprocessing.postprocess_tile(features, predictions,
                                                   self.min_x, self.min_y)
         df = pd.DataFrame(results)
         if not df.empty:
             df.columns = ["conf_completed", "conf_unfinished",
                           "conf_foundation", "coords_geo", "coords_pixel"]
-        print(df.shape)
         df.index.name = "building_id"
         with open(self.output().path, "w") as fobj:
             df.to_csv(self.output().path)
@@ -713,7 +716,6 @@ class PostProcessTiles(luigi.Task):
         if not df.empty:
             df.columns = ["conf_completed", "conf_unfinished",
                           "conf_foundation", "coords_geo", "coords_pixel"]
-        print(df.shape)
         df.index.name = "building_id"
         with open(self.output().path, "w") as fobj:
             df.to_csv(self.output().path)

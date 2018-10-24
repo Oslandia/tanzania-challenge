@@ -76,7 +76,6 @@ def predict_on_folder(datapath, img_size):
 
     test_bd = prepare_dataset(os.path.join(datapath, "preprocessed"),
                               img_size, "testing")
-    print(test_bd.num_images)
     nb_images = test_bd.num_images
     log = {}
     for image_id in test_bd.image_ids[:nb_images]:
