@@ -91,7 +91,7 @@ def predict_on_folder(datapath, img_size):
 
 
 if __name__ == "__main__":
-    
+
     parser = argparse.ArgumentParser(description=("Infer building instances on"
                                                   "images with a trained Mask-"
                                                   "RCNN model."))

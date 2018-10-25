@@ -169,6 +169,32 @@ def postprocess_tile(features, predictions, min_x, min_y):
     """
     results = []
     structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    masks = np.array(predictions["masks"], dtype=np.uint8)
+    class_ids = np.array(predictions["class_ids"], dtype=np.uint8)
+    scores = np.array(predictions["scores"], dtype=np.float32)
+    print(np.array(masks).shape)
+    for mask, class_id, score in zip(masks, class_ids, scores):
+        if len(mask) > 0:
+            polygon = extract_geometry(mask, structure)
+            for p in polygon:
+                add_polygon(p, class_id, score, results,
+                            features, min_x, min_y)
+    return results
+
+def postprocess_folder(tile_name):
+    """
+    """
+    _, _, _, min_x, min_y = tile_name.split("_")
+    feature_path = os.path.join("data", "open_ai_tanzania", "preprocessed",
+                                "384", "testing", "features",
+                                tile_name)
+    with open(feature_path) as fobj:
+        features = json.load(fobj)
+    pred_path = feature_path.replace("features", "predicted_labels")
+    with open(pred_path) as fobj:
+        predictions = json.load(fobj)
+    results = []
+    structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = predictions["masks"]
     class_ids = predictions["class_ids"]
     scores = predictions["scores"]
@@ -176,20 +202,5 @@ def postprocess_tile(features, predictions, min_x, min_y):
     if len(mask) > 0:
         polygon = extract_geometry(mask, structure)
         add_polygon(polygon[0], class_ids, scores, results,
-                    features, min_x, min_y)
-    return results
-
-
-def postprocess_tile(features, predictions, min_x, min_y):
-    """
-    """
-    results = []
-    structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    masks = np.array(predictions["masks"], dtype=np.uint8)
-    class_ids = np.array(predictions["class_ids"], dtype=np.uint8)
-    scores = np.array(predictions["scores"], dtype=np.float32)
-    for mask, class_id, score in zip(masks, class_ids, scores):
-        polygon = extract_geometry(mask, structure)
-        add_polygon(polygon[0], class_id, score, results,
                     features, min_x, min_y)
     return results

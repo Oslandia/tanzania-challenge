@@ -273,6 +273,41 @@ class GetAllTileFeatures(luigi.Task):
         return task_in
 
 
+class GetTileFeaturesFromFolder(luigi.Task):
+    """
+
+    Attributes
+    ----------
+    datapath : str
+        Path towards the Tanzania challenge data
+    filename : str
+        Name of the area of interest, *e.g.* `grid_001`
+    tile_size : int
+        Number of pixels that must be considered in both direction (east-west,
+    north-south) in tile definition. This constraint is relaxed when
+    considering border tiles (on east and south borders, especially).
+
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    dataset = luigi.Parameter(default="testing")
+    tile_size = luigi.IntParameter(default=384)
+    folder = luigi.Parameter()
+
+    def requires(self):
+        task_in = {}
+        filenames = os.listdir(os.path.join(self.datapath, "preprocessed",
+                                            str(self.tile_size), self.dataset,
+                                            self.folder))
+        for f in filenames:
+            filename, tile_width, tile_height, x, y = f.split(".")[0].split("_")
+            task_in[f] = GetTileFeatures(self.datapath,
+                                         self.dataset,
+                                         filename,
+                                         x, y, self.tile_size,
+                                         tile_width, tile_height)
+        return task_in
+
+
 class StoreLabelsToDatabase(luigi.Task):
     """Store image labels to a database, considering that the input format is
     `geojson`. We use `ogr2ogr` program, and consider the task as accomplished
@@ -563,7 +598,6 @@ class PredictBuildingsOnTile(luigi.Task):
     """
     """
     datapath = luigi.Parameter(default="./data/open_ai_tanzania")
-    dataset = luigi.Parameter(default="training")
     filename = luigi.Parameter()
     min_x = luigi.IntParameter()
     min_y = luigi.IntParameter()
@@ -610,6 +644,7 @@ class PredictBuildingsOnAllTiles(luigi.Task):
         output_path =  os.path.join(self.datapath, "preprocessed",
                                     str(self.tile_size), "testing")
         os.makedirs(output_path, exist_ok=True)
+        os.makedirs(os.path.join(output_path, "predicted_labels"), exist_ok=True)
         output_filename = "prediction_log.json"
         return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
@@ -623,7 +658,6 @@ class PostProcessTile(luigi.Task):
     """
     """
     datapath = luigi.Parameter(default="./data/open_ai_tanzania")
-    dataset = luigi.Parameter(default="training")
     filename = luigi.Parameter()
     min_x = luigi.IntParameter()
     min_y = luigi.IntParameter()
@@ -633,7 +667,6 @@ class PostProcessTile(luigi.Task):
 
     def requires(self):
         return {"prediction": PredictBuildingsOnTile(self.datapath,
-                                                     self.dataset,
                                                      self.filename, self.min_x,
                                                      self.min_y,
                                                      self.tile_size,
@@ -670,6 +703,78 @@ class PostProcessTile(luigi.Task):
         df.index.name = "building_id"
         with open(self.output().path, "w") as fobj:
             df.to_csv(self.output().path)
+
+
+class PostProcessAllTiles(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    tile_size = luigi.IntParameter(default=384)
+
+    # FOR NOW, TRAINING PRODUCES A FOLDER THAT DEPENDS ON DATE,
+    # IT CAN'T BE USED AS A LUIGI REQUIRED TASK
+    # def requires(self):
+    #     return TrainMaskRCNN(self.datapath, self.tile_size)
+
+    def output(self):
+        output_path =  os.path.join(self.datapath, "preprocessed",
+                                    str(self.tile_size), "testing")
+        os.makedirs(output_path, exist_ok=True)
+        os.makedirs(os.path.join(output_path, "predicted_labels"), exist_ok=True)
+        output_filename = "PostProcessAllTiles_log.json"
+        return luigi.LocalTarget(os.path.join(output_path, output_filename))
+
+    def run(self):
+        predict_folder = os.path.join(self.datapath, "preprocessed",
+                                      str(self.tile_size), "testing",
+                                      "predicted_labels")
+        predicted_files = os.listdir(predict_folder)
+        with Pool() as p:
+            results = p.starmap(postprocessing.postprocess_folder,
+                                [(t, ) for t in predicted_files])
+
+        df = pd.DataFrame([l for l in results if len(l) > 0])
+        if not df.empty:
+            df.columns = ["conf_completed", "conf_unfinished",
+                          "conf_foundation", "coords_geo", "coords_pixel"]
+        df.index.name = "building_id"
+        with open(self.output().path, "w") as fobj:
+            df.to_csv(self.output().path)
+        with open(self.output().path, "w") as fobj:
+            json.dump(log, fobj)
+
+
+class PostProcessFromFolder(luigi.Task):
+    """
+
+    Attributes
+    ----------
+    datapath : str
+        Path towards the Tanzania challenge data
+    filename : str
+        Name of the area of interest, *e.g.* `grid_001`
+    tile_size : int
+        Number of pixels that must be considered in both direction (east-west,
+    north-south) in tile definition. This constraint is relaxed when
+    considering border tiles (on east and south borders, especially).
+
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    tile_size = luigi.IntParameter(default=384)
+    folder = luigi.Parameter()
+
+    def requires(self):
+        task_in = {}
+        filenames = os.listdir(os.path.join(self.datapath, "preprocessed",
+                                            str(self.tile_size), "testing",
+                                            self.folder))
+        for f in filenames:
+            filename, tile_width, tile_height, x, y = f.split(".")[0].split("_")
+            task_in[f] = PostProcessTile(self.datapath,
+                                         filename,
+                                         x, y, self.tile_size,
+                                         tile_width, tile_height)
+        return task_in
 
 
 class PostProcessTiles(luigi.Task):
