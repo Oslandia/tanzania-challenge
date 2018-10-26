@@ -32,6 +32,7 @@ from osgeo import gdal
 import pandas as pd
 import psycopg2
 import sh
+import shapely.wkt as swkt
 import subprocess
 
 from tanzania_challenge import utils, train, inference, postprocessing
@@ -776,6 +777,8 @@ class PostProcessFromFolder(luigi.Task):
                                          tile_width, tile_height)
         return task_in
 
+    def complete(self):
+        return False
 
 class PostProcessTiles(luigi.Task):
     """
@@ -840,6 +843,110 @@ class PostProcessAllImages(luigi.Task):
     def requires(self):
         for filename in self.filenames:
             yield PostProcessTiles(self.datapath, filename, self.tile_size)
+
+    def complete(self):
+        return False
+
+
+class MergeResults(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    tile_size = luigi.IntParameter(default=384)
+    filename = luigi.Parameter()
+    folder = luigi.Parameter()
+
+    def requires(self):
+        task_in = {}
+        filenames = os.listdir(os.path.join(self.datapath, "preprocessed",
+                                            str(self.tile_size), "testing",
+                                            self.folder))
+        filenames = [f for f in filenames if self.filename in f]
+        for f in filenames:
+            filename, tile_width, tile_height, x, y = f.split(".")[0].split("_")
+            task_in[f] = PostProcessTile(self.datapath,
+                                         filename,
+                                         x, y, self.tile_size,
+                                         tile_width, tile_height)
+        return task_in
+
+    def output(self):
+        output_path =  os.path.join(self.datapath, "preprocessed",
+                                    str(self.tile_size),
+                                    "testing", "merged_predictions")
+        os.makedirs(output_path, exist_ok=True)
+        output_filename = self.filename + ".csv"
+        return luigi.LocalTarget(os.path.join(output_path, output_filename))
+
+    def run(self):
+        combined_csv = pd.concat([pd.read_csv(input_file.path, index_col=None)
+                                  for key, input_file in self.input().items()])
+        combined_csv["building_id"] = range(combined_csv.shape[0])
+        combined_csv.set_index(["building_id"], inplace=True)
+        combined_csv.to_csv(self.output().path)
+
+
+class MergeAllResults(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    tile_size = luigi.IntParameter(default=384)
+
+    @property
+    def filenames(self):
+        image_dir = os.path.join(self.datapath, "input", "testing", "images")
+        return [fname.split(".")[0] for fname in os.listdir(image_dir)]
+
+    def requires(self):
+        for filename in self.filenames:
+            yield MergeResults(self.datapath, self.tile_size,
+                               filename, "predicted_labels")
+
+    def complete(self):
+        return False
+
+
+class GeolocalizeMergedResults(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    tile_size = luigi.IntParameter(default=384)
+    filename = luigi.Parameter()
+
+    def requires(self):
+        return MergeResults(self.datapath, self.tile_size,
+                            self.filename, "predicted_labels")
+
+    def output(self):
+        output_path =  os.path.join(self.datapath, "preprocessed",
+                                    str(self.tile_size),
+                                    "testing", "geo_predictions")
+        os.makedirs(output_path, exist_ok=True)
+        output_filename = self.filename + ".geojson"
+        return luigi.LocalTarget(os.path.join(output_path, output_filename))
+
+    def run(self):
+        predictions = pd.read_csv(self.input().path)
+        predictions["geom"] = [swkt.loads(s) for s in predictions["coords_geo"]]
+        gdf = gpd.GeoDataFrame(predictions, geometry="geom")
+        gdf.to_file(self.output().path, driver="GeoJSON")
+
+
+class GeolocalizeAllResults(luigi.Task):
+    """
+    """
+    datapath = luigi.Parameter(default="./data/open_ai_tanzania")
+    tile_size = luigi.IntParameter(default=384)
+
+    @property
+    def filenames(self):
+        image_dir = os.path.join(self.datapath, "input", "testing", "images")
+        return [fname.split(".")[0] for fname in os.listdir(image_dir)]
+
+    def requires(self):
+        for filename in self.filenames:
+            yield GeolocalizeMergedResults(self.datapath, self.tile_size,
+                                           filename)
 
     def complete(self):
         return False
