@@ -66,7 +66,7 @@ def get_image_features(ds):
 
 def pixel_to_coordinates(x, y, imfeatures):
     lat = int(imfeatures["west"] + (imfeatures["east"]-imfeatures["west"]) * x / imfeatures["width"])
-    lon = int(imfeatures["south"] + (imfeatures["north"]-imfeatures["south"]) * y / imfeatures["height"])
+    lon = int(imfeatures["north"] + (imfeatures["south"]-imfeatures["north"]) * y / imfeatures["height"])
     return lat, lon
 
 
@@ -95,7 +95,7 @@ def set_coordinates_as_x_y(lat, lon, srid):
     target.ImportFromEPSG(4326)
     transform = osr.CoordinateTransformation(source, target)
     x, y = transform.TransformPoint(lat, lon)[:2]
-    return y, x
+    return x, y
 
 
 def pixel_to_latlon(x, y, imfeatures):
@@ -105,13 +105,18 @@ def pixel_to_latlon(x, y, imfeatures):
                                   imfeatures["srid"])
 
 
-def build_geom(building, imfeatures=None, pixel=False, min_x=2500, min_y=2500):
+def build_geom(building, imfeatures=None, xy=True, pixel=False, min_x=2500, min_y=2500):
     feature = []
     for point in building:
         if pixel:
             feature.append((int(min_x + point[0][0]), min_y + int(point[0][1])))
         else:
-            feature.append(pixel_to_latlon(point[0][0], point[0][1], imfeatures))
+            if xy:
+                feature.append(pixel_to_latlon(point[0][0], point[0][1],
+                                               imfeatures))
+            else:
+                feature.append(pixel_to_latlon(point[0][1], point[0][0],
+                                               imfeatures))
     feature.append(feature[0])
     return feature
 
