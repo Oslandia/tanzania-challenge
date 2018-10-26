@@ -12,6 +12,27 @@ from mrcnn import model as modellib
 from tanzania_challenge import config
 from tanzania_challenge.train import prepare_dataset
 
+def load_model(datapath):
+    """Load a keras Mask-RCNN model with most recent available weights
+
+    Parameters
+    ----------
+    datapath : str
+        Path to dataset on file system
+
+    Returns
+    -------
+    keras.models.Model
+        Trained Mask-RCNN model
+    """
+    building_config = config.BuildingInferenceConfig()
+    model_path = os.path.join(datapath, "output",
+                              "instance_segmentation", "checkpoints")
+    model = modellib.MaskRCNN(mode="inference", config=building_config,
+                              model_dir=model_path)
+    weights_path = model.find_last()
+    model.load_weights(weights_path, by_name=True)
+    return model
 
 def predict_on_filename(datapath, img_size, filename):
     """Do an instance segmentation prediction on a given image starting from
@@ -32,13 +53,7 @@ def predict_on_filename(datapath, img_size, filename):
     dict
         Mask, class IDs and prediction scores for each detected instance
     """
-    building_config = config.BuildingInferenceConfig()
-    model_path = os.path.join(datapath, "output",
-                              "instance_segmentation", "checkpoints")
-    model = modellib.MaskRCNN(mode="inference", config=building_config,
-                              model_dir=model_path)
-    weights_path = model.find_last()
-    model.load_weights(weights_path, by_name=True)
+    model = load_model(datapath)
     image = Image.open(os.path.join(datapath, "preprocessed", str(img_size),
                                     "testing", "images", filename + ".tif"))
     image_data = np.array(image)
@@ -66,14 +81,7 @@ def predict_on_folder(datapath, img_size):
     dict
         Mask, class IDs and prediction scores for each detected instance
     """
-    building_config = config.BuildingInferenceConfig()
-    model_path = os.path.join(datapath, "output",
-                              "instance_segmentation", "checkpoints")
-    model = modellib.MaskRCNN(mode="inference", config=building_config,
-                              model_dir=model_path)
-    weights_path = model.find_last()
-    model.load_weights(weights_path, by_name=True)
-
+    model = load_model(datapath)
     test_bd = prepare_dataset(os.path.join(datapath, "preprocessed"),
                               img_size, "testing")
     nb_images = test_bd.num_images
