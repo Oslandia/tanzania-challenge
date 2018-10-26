@@ -138,7 +138,7 @@ def add_polygon(polygon, class_id, score, results, geofeatures, min_x=0, min_y=0
     feature = build_geom(polygon, imfeatures=geofeatures, pixel=False, min_x=min_x, min_y=min_y)
     geom = geojson.Polygon([feature])
     shape = shgeom.shape(geom)
-    pixel_feature = build_geom(polygon, pixel=True, min_x=0, min_y=0)
+    pixel_feature = build_geom(polygon, pixel=True, min_x=min_x, min_y=min_y)
     pixel_geom = geojson.Polygon([pixel_feature])
     pixel_shape = shgeom.shape(pixel_geom)
     predictions = np.zeros([3])
@@ -165,7 +165,7 @@ def postprocess(tile_name, input_dict):
     if len(mask) > 0:
         polygon = extract_geometry(mask, structure)
         add_polygon(polygon[0], class_ids, scores, results,
-                    features, min_x, min_y)
+                    features, int(min_x), int(min_y))
     return results
 
 
