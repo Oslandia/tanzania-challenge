@@ -84,7 +84,7 @@ class GenerateSubTile(luigi.Task):
         return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
     def run(self):
-        input_path = os.path.join(self.datapath, "input", self.input_dataset,
+        input_path = os.path.join(self.datapath, "input", self.dataset,
                                   "images", self.filename + ".tif")
         gdal_translate_args = ['-srcwin',
                                self.min_x, self.min_y,
@@ -155,10 +155,6 @@ class GetImageFeatures(luigi.Task):
     filename = luigi.Parameter()
     dataset = luigi.Parameter(default="training")
 
-    @property
-    def input_dataset(self):
-        return "testing" if self.dataset == "testing" else "training"
-
     def output(self):
         output_path = os.path.join(self.datapath, "input",
                                    self.dataset, "features")
@@ -167,7 +163,7 @@ class GetImageFeatures(luigi.Task):
         return luigi.LocalTarget(output_filename)
 
     def run(self):
-        input_filename = os.path.join(self.datapath, "input", self.input_dataset,
+        input_filename = os.path.join(self.datapath, "input", self.dataset,
                                       "images", self.filename + ".tif")
         coordinates = utils.get_image_features(input_filename)
         with self.output().open('w') as fobj:
@@ -300,7 +296,12 @@ class GetTileFeaturesFromFolder(luigi.Task):
                                             str(self.tile_size), self.dataset,
                                             self.folder))
         for f in filenames:
-            filename, tile_width, tile_height, x, y = f.split(".")[0].split("_")
+            if self.dataset in ["training", "validation"]:
+                f1, f2, tile_width, tile_height, x, y = f.split(".")[0].split("_")
+                filename = "_".join([f1, f2])
+            else:
+                filename, tile_width, tile_height, x, y = f.split(".")[0].split("_")
+
             task_in[f] = GetTileFeatures(self.datapath,
                                          self.dataset,
                                          filename,
