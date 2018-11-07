@@ -109,7 +109,7 @@ def build_geom(building, imfeatures=None, xy=True, pixel=False, min_x=2500, min_
     feature = []
     for point in building:
         if pixel:
-            feature.append((int(min_x + point[0][0]), min_y + int(point[0][1])))
+            feature.append((int(min_x) + int(point[0][0]), int(min_y) + int(point[0][1])))
         else:
             if xy:
                 feature.append(pixel_to_latlon(point[0][0], point[0][1],
@@ -182,8 +182,13 @@ def postprocess_tile(features, predictions, min_x, min_y):
         if len(mask) > 0:
             polygon = extract_geometry(mask, structure)
             for p in polygon:
-                add_polygon(p, class_id, score, results,
-                            features, min_x, min_y)
+                try:
+
+                    add_polygon(p, class_id, score, results,
+                                features, min_x, min_y)
+                except ValueError as e:
+                    print("Can't add a polygon: ", e)
+                    continue
     return results
 
 def postprocess_folder(tile_name):
