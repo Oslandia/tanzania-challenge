@@ -449,27 +449,29 @@ class ExtractAllTileItems(luigi.Task):
     """
     datapath = luigi.Parameter(default="./data/open_ai_tanzania")
     dataset = luigi.Parameter(default="training")
-    filename = luigi.Parameter()
     tile_size = luigi.IntParameter(default=5000)
 
+    @property
+    def filenames(self):
+        image_dir = os.path.join(self.datapath, "input", self.dataset, "images")
+        return [fname.split(".")[0] for fname in os.listdir(image_dir)]
+
     def requires(self):
-        task_in = {}
-        ds = gdal.Open(os.path.join(self.datapath, "input", self.dataset,
-                                    "images", self.filename + ".tif"))
-        xsize = ds.RasterXSize
-        ysize = ds.RasterYSize
-        for x in range(0, xsize, self.tile_size):
-            tile_width = min(xsize - x, self.tile_size)
-            for y in range(0, ysize, self.tile_size):
-                task_id = str(x) + "-" + str(y)
-                tile_height = min(ysize - y, self.tile_size)
-                task_in[task_id] = ExtractTileItems(self.datapath,
-                                                    self.dataset,
-                                                    self.filename,
-                                                    x, y, self.tile_size,
-                                                    tile_width, tile_height)
-        ds = None
-        return task_in
+        for filename in self.filenames:
+            ds = gdal.Open(os.path.join(self.datapath, "input", self.dataset,
+                                        "images", filename + ".tif"))
+            xsize = ds.RasterXSize
+            ysize = ds.RasterYSize
+            for x in range(0, xsize, self.tile_size):
+                tile_width = min(xsize - x, self.tile_size)
+                for y in range(0, ysize, self.tile_size):
+                    tile_height = min(ysize - y, self.tile_size)
+                    yield ExtractTileItems(self.datapath,
+                                           self.dataset,
+                                           filename,
+                                           x, y, self.tile_size,
+                                           tile_width, tile_height)
+            ds = None
 
     def complete(self):
         return False
