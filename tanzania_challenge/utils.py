@@ -48,3 +48,48 @@ def get_image_features(filename):
     ds = None
     return {"west": minx, "south": miny, "east": maxx, "north": maxy,
             "srid": srid, "width": width, "height": height}
+
+
+def get_tile_features(tile_width, tile_height, tile_min_x, tile_min_y, img_features):
+    """Retrieve tile features starting from original raw image features
+
+    Parameters
+    ----------
+    tile_width : int
+        Tile width, in pixel
+    tile_height : int
+        Tile height, in pixel
+    tile_min_x : int
+        East coordinates of the tile within the raw image, expressed in pixel
+    tile_min_y : int
+        North coordinates of the tile within the raw image, expressed in pixel
+    img_features : dict
+        Raw image geo-features (coordinates, SRID, width and height)
+
+    Returns
+    -------
+    dict
+        Bounding box of the image (west, south, east, north coordinates), srid,
+    and size (in pixels)
+
+    """
+    tile_features = {"width": tile_width,
+                     "height": tile_height,
+                     "srid": img_features["srid"]}
+    tile_features["west"] = (img_features["west"]
+                             + tile_min_x
+                             * (img_features["east"] - img_features["west"])
+                             / img_features["width"])
+    tile_features["east"] = (img_features["west"]
+                             + (tile_min_x + tile_width)
+                             * (img_features["east"] - img_features["west"])
+                             / img_features["width"])
+    tile_features["north"] = (img_features["north"]
+                             + tile_min_y
+                             * (img_features["south"] - img_features["north"])
+                             / img_features["height"])
+    tile_features["south"] = (img_features["north"]
+                             + (tile_min_y + tile_height)
+                             * (img_features["south"] - img_features["north"])
+                             / img_features["height"])
+    return tile_features

@@ -206,11 +206,13 @@ class GetTileFeatures(luigi.Task):
     tile_height = luigi.IntParameter(default=5000)
 
     def requires(self):
-        return GenerateSubTile(self.datapath, self.dataset,
-                               self.filename,
-                               self.min_x, self.min_y,
-                               self.tile_size,
-                               self.tile_width, self.tile_height)
+        return {"tile": GenerateSubTile(self.datapath, self.dataset,
+                                        self.filename,
+                                        self.min_x, self.min_y,
+                                        self.tile_size,
+                                        self.tile_width, self.tile_height),
+                "img_features": GetImageFeatures(self.datapath, self.filename,
+                                                 self.dataset)}
 
     def output(self):
         output_path = os.path.join(self.datapath, "preprocessed",
@@ -225,7 +227,13 @@ class GetTileFeatures(luigi.Task):
         return luigi.LocalTarget(os.path.join(output_path, output_filename))
 
     def run(self):
-        coordinates = utils.get_image_features(self.input().path)
+        with open(self.input()["img_features"].path) as fobj:
+            img_features = json.load(fobj)
+        coordinates = utils.get_tile_features(self.tile_width,
+                                              self.tile_height,
+                                              self.min_x,
+                                              self.min_y,
+                                              img_features)
         with self.output().open('w') as fobj:
             json.dump(coordinates, fobj)
 
@@ -301,12 +309,11 @@ class GetTileFeaturesFromFolder(luigi.Task):
                 filename = "_".join([f1, f2])
             else:
                 filename, tile_width, tile_height, x, y = f.split(".")[0].split("_")
-
             task_in[f] = GetTileFeatures(self.datapath,
                                          self.dataset,
                                          filename,
-                                         x, y, self.tile_size,
-                                         tile_width, tile_height)
+                                         int(x), int(y), int(self.tile_size),
+                                         int(tile_width), int(tile_height))
         return task_in
 
 
