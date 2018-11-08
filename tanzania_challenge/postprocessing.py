@@ -9,68 +9,30 @@ import os
 from osgeo import gdal, osr
 import shapely.geometry as shgeom
 
-def flatten(data):
-    if len(data.shape) == 3:
-        return np.reshape(data, [-1, data.shape[2]])
-    else:
-        return np.reshape(data, [-1])
-
-
-def count_pixels(data):
-    if len(data.shape) == 3:
-        df = pd.DataFrame(flatten(data), columns=["red", "green", "blue"])
-        return df.groupby(["red", "green", "blue"])["red"].count()
-    else:
-        return pd.Series(flatten(data)).value_counts()
-
-def count_pixels(data):
-    if len(data.shape) == 3:
-        df = pd.DataFrame(flatten(data), columns=["red", "green", "blue"])
-        return df.groupby(["red", "green", "blue"])["red"].count()
-    else:
-        return pd.Series(flatten(data)).value_counts()
-
-
-def masking(data, pixel):
-    mask = np.zeros(data.shape[0] * data.shape[1], dtype=np.uint8)
-    if len(data.shape) == 3:
-        mask[np.all(flatten(data) == pixel, axis=1)] = 1
-    else:
-        mask[flatten(data) == pixel] = 1
-    return np.reshape(mask, [data.shape[0], data.shape[1]])
-
-
-def geo_project_label(data, datasource):
-    driver = gdal.GetDriverByName("MEM")
-    out_source = driver.Create("", data.shape[0], data.shape[1], 1, gdal.GDT_Int16)
-    out_source.SetProjection(datasource.GetProjection())
-    geotransform = list(datasource.GetGeoTransform())
-    geotransform[0] = geotransform[0] + (datasource.RasterXSize * geotransform[1]) * 10 / 20
-    geotransform[3] = geotransform[3] + (datasource.RasterYSize * geotransform[5]) * 10 / 20
-    out_source.SetGeoTransform(tuple(geotransform))
-    return out_source
-
-
-def get_image_features(ds):
-    width = ds.RasterXSize
-    height = ds.RasterYSize
-    gt = ds.GetGeoTransform()
-    minx = gt[0]
-    miny = gt[3] + height * gt[5] * 250/240
-    maxx = gt[0] + width * gt[1] * 250/240
-    maxy = gt[3]
-    srid = int(ds.GetProjection().split('"')[-2])
-    return {"west": minx, "south": miny, "east": maxx, "north": maxy,
-            "srid": srid, "width": width, "height": height}
-
 
 def pixel_to_coordinates(x, y, imfeatures):
+    """Transform point coordinates from pixel to geographical coordinates
+
+    Parameters
+    ----------
+    x : int
+        Point abscissa
+    y : int
+        Point ordinates
+    imfeatures : dict
+        Image geographical description
+
+    Returns
+    -------
+    tuple
+        Point latitude and longitude
+    """
     lat = int(imfeatures["west"] + (imfeatures["east"]-imfeatures["west"]) * x / imfeatures["width"])
     lon = int(imfeatures["north"] + (imfeatures["south"]-imfeatures["north"]) * y / imfeatures["height"])
     return lat, lon
 
 
-def set_coordinates_as_x_y(lat, lon, srid):
+def reproject_point(lat, lon, srid):
     """Transform coordinates into a (x,y)-compatible projection
 
     Parameters
@@ -99,13 +61,54 @@ def set_coordinates_as_x_y(lat, lon, srid):
 
 
 def pixel_to_latlon(x, y, imfeatures):
+    """Transform point coordinates from pixel to geographical coordinates in
+    the accurate geographical projection
+
+    Parameters
+    ----------
+    x : int
+        Point abscissa
+    y : int
+        Point ordinates
+    imfeatures : dict
+        Image geographical description
+
+    Returns
+    -------
+    tuple
+        Point latitude and longitude
+    """
     coordinates = pixel_to_coordinates(x, y, imfeatures)
-    return set_coordinates_as_x_y(coordinates[0],
-                                  coordinates[1],
-                                  imfeatures["srid"])
+    return reproject_point(coordinates[0], coordinates[1], imfeatures["srid"])
 
 
-def build_geom(building, imfeatures=None, xy=True, pixel=False, min_x=2500, min_y=2500):
+def build_geom(building, imfeatures=None, xy=True, pixel=False,
+               min_x=2500, min_y=2500):
+    """
+
+    Parameters
+    ----------
+    building : list
+        Pixel points that represents a polygon on the image prediction mask
+    imfeatures : dict
+        Geographical features
+    xy : bool
+        If true, points are expressed as (x, y), or (y, x) otherwise
+    pixel : bool
+        If true, points are expressed as pixel coordinates in the raw image,
+    otherwise they are expressed in geographical coordinates
+    min_x : int
+        Horizontal image pixel shift, with respect to the raw image (from the
+    left border)
+    min_y : int
+        Vertical image pixel shift, with respect to the raw image (from the
+    upper border)
+
+    Returns
+    -------
+    list
+        List of geographical points expressed in the accurate projection
+    """
     feature = []
     for point in building:
         if pixel:
@@ -122,18 +125,67 @@ def build_geom(building, imfeatures=None, xy=True, pixel=False, min_x=2500, min_
 
 
 def extract_geometry(mask, structure):
-    """
+    """Extract polygons from a boolean mask with the help of OpenCV utilities
+
+    Parameters
+    ----------
+    mask : numpy.array
+        Image mask where to find polygons
+    structure : numpy.array
+        Artifact used for image morphological transformation
+
+    Returns
+    -------
+    list
+        List of polygons contained in the mask
     """
     denoised = cv2.morphologyEx(mask, cv2.MORPH_OPEN, structure)
     grown = cv2.morphologyEx(denoised, cv2.MORPH_CLOSE, structure)
-    _, contours, hierarchy = cv2.findContours(grown, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    polygons = [cv2.approxPolyDP(c, epsilon=0.01*cv2.arcLength(c, closed=True), closed=True)
+    _, contours, hierarchy = cv2.findContours(grown, cv2.RETR_TREE,
+                                              cv2.CHAIN_APPROX_SIMPLE)
+    polygons = [cv2.approxPolyDP(c,
+                                 epsilon=0.01*cv2.arcLength(c, closed=True),
+                                 closed=True)
                 for c in contours]
     return polygons
 
 
 def add_polygon(polygon, class_id, score, results, geofeatures, min_x=0, min_y=0):
-    """
+    """Prepare the polygon characterization for Open AI Tanzania challenge
+
+    Results must be in the following format:
+    | building_id | conf_completed | conf_incompleted | conf_foundation |
+    coords_geo | coords_pixel |
+    |-----------|-----------|-----------|-----------|-----------|-----------|
+    | 1         |  0.3      | 0.5       | 0.2       | POLYGON((39.0, -5.3),
+    ...) | POLYGON((324, 4100), ) |
+
+    where `conf_*` refer to the probability of occurrence of each type of
+    building in the dataset, and `coords_*` respectively the buildings
+    expressed as geographical and pixel coordinates
+
+    Parameters
+    ----------
+    polygon : list
+        Polygons extracted with OpenCV utilities (list of list of points)
+    class_id : numpy.array
+        Class of each detected polygon (completed, incompleted or foundation)
+    score : numpy.array
+        Detection score of each detected polygon (associated to the accurate
+    class)
+    geofeatures : dict
+        Image geographical features
+    min_x : int
+        Horizontal image pixel shift, with respect to the raw image (from the
+    left border)
+    min_y : int
+        Vertical image pixel shift, with respect to the raw image (from the
+    upper border)
+
+    Returns
+    -------
+    list
+        Polygon list enriched with current polygon description
     """
     feature = build_geom(polygon, imfeatures=geofeatures, pixel=False, min_x=min_x, min_y=min_y)
     geom = geojson.Polygon([feature])
@@ -146,38 +198,36 @@ def add_polygon(polygon, class_id, score, results, geofeatures, min_x=0, min_y=0
     return results.append([*predictions, shape.wkt, pixel_shape.wkt])
 
 
-def postprocess(tile_name, input_dict):
-    """
-    """
-    _, _, _, min_x, min_y = tile_name.split("_")
-    feature_path = input_dict["-".join(("features", tile_name))].path
-    with open(feature_path) as fobj:
-        features = json.load(fobj)
-    pred_path = feature_path.replace("features", "predicted_labels")
-    with open(pred_path) as fobj:
-        predictions = json.load(fobj)
-    results = []
-    structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    mask = predictions["masks"]
-    class_ids = predictions["class_ids"]
-    scores = predictions["scores"]
-    print(np.array(mask).shape)
-    if len(mask) > 0:
-        polygon = extract_geometry(mask, structure)
-        add_polygon(polygon[0], class_ids, scores, results,
-                    features, int(min_x), int(min_y))
-    return results
-
-
 def postprocess_tile(features, predictions, min_x, min_y):
-    """
+    """Post-process a tile, *i.e.* transform prediction results into
+    exploitable format
+
+    Parameters
+    ----------
+    features : dict
+        Image geographical features
+    predictions : dict
+        Instance segmentation algorithm results (contained a ̀masks` key that
+    describes predicted buildings on the image, a `class_ids` key for giving
+    the detected building corresponding classes, and a `scores` key for giving
+    the prediction scores of each detected building)
+    min_x : int
+        Horizontal image pixel shift, with respect to the raw image (from the
+    left border)
+    min_y : int
+        Vertical image pixel shift, with respect to the raw image (from the
+    upper border)
+
+    Results
+    -------
+    list
+        List of detected buildings as polygons
     """
     results = []
     structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     masks = np.array(predictions["masks"], dtype=np.uint8)
     class_ids = np.array(predictions["class_ids"], dtype=np.uint8)
     scores = np.array(predictions["scores"], dtype=np.float32)
-    print(np.array(masks).shape)
     for mask, class_id, score in zip(masks, class_ids, scores):
         if len(mask) > 0:
             polygon = extract_geometry(mask, structure)
@@ -189,28 +239,4 @@ def postprocess_tile(features, predictions, min_x, min_y):
                 except ValueError as e:
                     print("Can't add a polygon: ", e)
                     continue
-    return results
-
-def postprocess_folder(tile_name):
-    """
-    """
-    _, _, _, min_x, min_y = tile_name.split("_")
-    feature_path = os.path.join("data", "open_ai_tanzania", "preprocessed",
-                                "384", "testing", "features",
-                                tile_name)
-    with open(feature_path) as fobj:
-        features = json.load(fobj)
-    pred_path = feature_path.replace("features", "predicted_labels")
-    with open(pred_path) as fobj:
-        predictions = json.load(fobj)
-    results = []
-    structure = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    mask = predictions["masks"]
-    class_ids = predictions["class_ids"]
-    scores = predictions["scores"]
-    print(np.array(mask).shape)
-    if len(mask) > 0:
-        polygon = extract_geometry(mask, structure)
-        add_polygon(polygon[0], class_ids, scores, results,
-                    features, min_x, min_y)
     return results
