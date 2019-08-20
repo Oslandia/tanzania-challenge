@@ -90,10 +90,10 @@ class BuildingDataset(Dataset):
             features = json.load(fobj)
         conditions = [self.condition_dict.get(v["condition"], 1)
                       for k, v in items.items()]
-        if len(conditions) == 0:
-            return [], np.array(conditions, dtype=np.uint8)
         mask = np.zeros(shape=(info["width"], info["height"], len(conditions)),
                         dtype='int8')
+        if len(conditions) == 0:
+            return mask, np.array(conditions, dtype=np.uint8)
         for k, v in items.items():
             polygon = wkb.loads(v["geom"], hex=True)
             assert(type(polygon) != geometry.MultiPolygon,
