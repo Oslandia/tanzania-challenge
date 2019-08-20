@@ -19,13 +19,13 @@ with open('README.md', 'rb') as f:
 install_requires = [
     'configparser<=3.5.0',
     'keras<=2.2.2',
-    'numpy<=1.14.2',
+    'numpy<=1.17',
     'pandas<=0.22.0',
     'luigi<=2.8.8',
     'Pillow<=5.0.0',
     'requests<=2.19.1'
     'sh<=1.12.14',
-    'tensorflow<=1.10.1']
+    'tensorflow<=1.12.2']
 
 dependency_links = [
     'git+https://github.com/mapnik/python-mapnik@v3.0.16',
