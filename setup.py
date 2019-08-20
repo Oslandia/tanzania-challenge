@@ -29,7 +29,7 @@ install_requires = [
 
 dependency_links = [
     'git+https://github.com/mapnik/python-mapnik@v3.0.16',
-    'git+https://github.com/matterport/Mask_RCNN',
+    'git+https://github.com/delhomer/Mask_RCNN',
 ]
 
 setup(
