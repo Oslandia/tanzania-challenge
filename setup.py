@@ -25,7 +25,7 @@ install_requires = [
     'Pillow<=6.2.0',
     'requests<=2.19.1'
     'sh<=1.12.14',
-    'tensorflow<=1.15',
+    'tensorflow==1.15.2',
     'geopandas<=0.4.0'
 ]
 
